@@ -1,0 +1,37 @@
+{
+  "path": "chunked_eval.py",
+  "kind": "script",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 14,
+      "lines": [
+        23,
+        28
+      ],
+      "statement": "For",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "C (loop instrumentation)"
+      ],
+      "loops": [
+        {
+          "line": 23,
+          "header": "for start in range(0, N_ITEMS, CHUNK)",
+          "kind": "for",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "simple_statements": 12,
+  "frameworks": {},
+  "risks": [],
+  "suggestions": [],
+  "environment": {
+    "third_party_imports": []
+  },
+  "format": 1
+}

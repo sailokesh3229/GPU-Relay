@@ -1,0 +1,64 @@
+{
+  "path": "dataloader_mid_epoch.py",
+  "kind": "script",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 12,
+      "lines": [
+        21,
+        30
+      ],
+      "statement": "For",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "C (loop instrumentation)"
+      ],
+      "loops": [
+        {
+          "line": 21,
+          "header": "for epoch in range(3)",
+          "kind": "for",
+          "safe_points": true
+        },
+        {
+          "line": 23,
+          "header": "for xb, yb in loader",
+          "kind": "for",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "simple_statements": 9,
+  "frameworks": {},
+  "risks": [],
+  "suggestions": [
+    {
+      "kind": "mixed_precision",
+      "message": "training without mixed precision: torch.autocast + GradScaler usually cuts GPU time substantially on GPUs with tensor cores (e.g. T4)",
+      "line": null,
+      "cell": null
+    },
+    {
+      "kind": "dataloader_workers",
+      "message": "DataLoader without worker processes: num_workers=2-4 keeps the GPU fed (Kaggle/Colab sessions have 2-4 CPU cores)",
+      "line": 16,
+      "cell": null
+    },
+    {
+      "kind": "pin_memory",
+      "message": "DataLoader(pin_memory=True) speeds up host-to-GPU copies",
+      "line": 16,
+      "cell": null
+    }
+  ],
+  "environment": {
+    "third_party_imports": [
+      "torch"
+    ]
+  },
+  "format": 1
+}

@@ -1,0 +1,39 @@
+{
+  "path": "sdk_chunks.py",
+  "kind": "script",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 15,
+      "lines": [
+        29,
+        35
+      ],
+      "statement": "For",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "D (SDK)"
+      ],
+      "loops": [
+        {
+          "line": 29,
+          "header": "for chunk in relay.chunks(items, size=20)",
+          "kind": "sdk",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "simple_statements": 13,
+  "frameworks": {},
+  "risks": [],
+  "suggestions": [],
+  "environment": {
+    "third_party_imports": [
+      "gpurelay"
+    ]
+  },
+  "format": 1
+}

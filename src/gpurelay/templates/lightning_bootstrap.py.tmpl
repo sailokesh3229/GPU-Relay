@@ -1,0 +1,72 @@
+"""GPU Relay bootstrap for a Lightning AI job (generated -- contains no secrets).
+
+job $job_id, segment $segment_id
+"""
+
+import os
+import subprocess
+import sys
+import time
+
+START = time.time()
+REPO_ID = $repo_id_py
+JOB_ID = $job_id_py
+SEGMENT_ID = $segment_id_py
+WHEEL = $wheel_py
+DEADLINE_S = $deadline_s
+HARD_LIMIT_S = $hard_limit_s
+SETTINGS = $settings_literal
+
+
+def log(message):
+    print(f"[gpurelay bootstrap] {message}", flush=True)
+
+
+def pip(*args):
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", *args]
+    )
+
+
+# The storage token comes from the job's environment, never from this file.
+token = os.environ.get("HF_TOKEN", "")
+if not token.startswith("hf_"):
+    log("HF_TOKEN is missing from the job environment")
+    sys.exit(87)
+
+try:
+    import huggingface_hub  # noqa: F401
+except ImportError:
+    pip("huggingface_hub>=0.24")
+from huggingface_hub import hf_hub_download
+
+wheel = hf_hub_download(
+    REPO_ID, f"jobs/{JOB_ID}/bundle/{WHEEL}", repo_type="dataset", token=token,
+    local_dir="/tmp/gpurelay/wheel",
+)
+pip(wheel)
+log(f"runtime installed ({WHEEL}); starting segment {SEGMENT_ID}")
+
+import json
+
+command = [
+    sys.executable, "-m", "gpurelay.runtime.entry",
+    "--job", JOB_ID,
+    "--segment", SEGMENT_ID,
+    "--storage", f"hf:{REPO_ID}",
+    "--work-dir", "/tmp/gpurelay/job",
+    "--runtime-dir", "/tmp/gpurelay/runtime",
+    "--backend", "lightning",
+    "--deadline", repr(START + DEADLINE_S),
+    "--settings", json.dumps(SETTINGS),
+    "--install-requirements",
+]
+env = dict(os.environ, PYTHONHASHSEED="0", MPLBACKEND="Agg")
+try:
+    # Lightning has no session limit: never let a stuck segment keep spending credits.
+    code = subprocess.call(command, env=env, timeout=max(HARD_LIMIT_S - (time.time() - START), 60))
+except subprocess.TimeoutExpired:
+    log("hard time limit reached; stopping (the controller resumes from the last checkpoint)")
+    code = 87
+log(f"segment finished with exit code {code}")
+sys.exit(0 if code in (0, 85) else code)

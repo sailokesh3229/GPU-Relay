@@ -1,0 +1,30 @@
+{
+  "path": "function_loops.py",
+  "kind": "script",
+  "overall": "RESTART_ONLY",
+  "blocks": [
+    {
+      "index": 8,
+      "lines": [
+        43,
+        44
+      ],
+      "statement": "If",
+      "level": "PARTIAL",
+      "cell": null,
+      "covered_by": [],
+      "loops": [],
+      "notes": [
+        "calls refine(), train() containing loops without safe points (set `instrument_functions = true` under [runtime], use relay.range/relay.chunks inside them, or move the loop to the top level)"
+      ]
+    }
+  ],
+  "simple_statements": 2,
+  "frameworks": {},
+  "risks": [],
+  "suggestions": [],
+  "environment": {
+    "third_party_imports": []
+  },
+  "format": 1
+}

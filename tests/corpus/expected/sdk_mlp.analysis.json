@@ -1,0 +1,56 @@
+{
+  "path": "sdk_mlp.py",
+  "kind": "script",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 23,
+      "lines": [
+        41,
+        57
+      ],
+      "statement": "For",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "D (SDK)",
+        "C (loop instrumentation)"
+      ],
+      "loops": [
+        {
+          "line": 41,
+          "header": "for epoch in relay.range(EPOCHS)",
+          "kind": "sdk",
+          "safe_points": true
+        },
+        {
+          "line": 44,
+          "header": "for i in range(0, len(X), 64)",
+          "kind": "for",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "simple_statements": 21,
+  "frameworks": {},
+  "risks": [],
+  "suggestions": [
+    {
+      "kind": "mixed_precision",
+      "message": "training without mixed precision: torch.autocast + GradScaler usually cuts GPU time substantially on GPUs with tensor cores (e.g. T4)",
+      "line": null,
+      "cell": null
+    }
+  ],
+  "environment": {
+    "third_party_imports": [
+      "gpurelay",
+      "matplotlib",
+      "numpy",
+      "torch"
+    ]
+  },
+  "format": 1
+}

@@ -1,0 +1,39 @@
+{
+  "path": "function_loops_torch.py",
+  "kind": "script",
+  "overall": "RESTART_ONLY",
+  "blocks": [
+    {
+      "index": 5,
+      "lines": [
+        29,
+        29
+      ],
+      "statement": "Assign",
+      "level": "PARTIAL",
+      "cell": null,
+      "covered_by": [],
+      "loops": [],
+      "notes": [
+        "calls train() containing loops without safe points (set `instrument_functions = true` under [runtime], use relay.range/relay.chunks inside them, or move the loop to the top level)"
+      ]
+    }
+  ],
+  "simple_statements": 2,
+  "frameworks": {},
+  "risks": [],
+  "suggestions": [
+    {
+      "kind": "mixed_precision",
+      "message": "training without mixed precision: torch.autocast + GradScaler usually cuts GPU time substantially on GPUs with tensor cores (e.g. T4)",
+      "line": null,
+      "cell": null
+    }
+  ],
+  "environment": {
+    "third_party_imports": [
+      "torch"
+    ]
+  },
+  "format": 1
+}

@@ -1,0 +1,43 @@
+{
+  "path": "kaggle_smoke.py",
+  "kind": "script",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 12,
+      "lines": [
+        23,
+        29
+      ],
+      "statement": "For",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "C (loop instrumentation)"
+      ],
+      "loops": [
+        {
+          "line": 23,
+          "header": "for step in range(STEPS)",
+          "kind": "for",
+          "safe_points": true
+        },
+        {
+          "line": 24,
+          "header": "for _ in range(20_000)",
+          "kind": "for",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "simple_statements": 9,
+  "frameworks": {},
+  "risks": [],
+  "suggestions": [],
+  "environment": {
+    "third_party_imports": []
+  },
+  "format": 1
+}

@@ -1,0 +1,25 @@
+# systemd unit for the GPU Relay controller on an always-on Linux machine (no Docker).
+#
+#   sudo cp deploy/gpurelay.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now gpurelay
+#   journalctl -u gpurelay -f
+#
+# /home/relay/.config/gpurelay.env (chmod 600) holds the tokens, one per line:
+#   HF_TOKEN=hf_...
+#   KAGGLE_API_TOKEN=KGAT_...
+[Unit]
+Description=GPU Relay controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=relay
+Environment=GPURELAY_HOME=/home/relay/.gpurelay
+EnvironmentFile=/home/relay/.config/gpurelay.env
+ExecStart=/home/relay/gpurelay-venv/bin/gpurelay up
+# After a crash the new process waits for the old lease to go quiet, then takes over.
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

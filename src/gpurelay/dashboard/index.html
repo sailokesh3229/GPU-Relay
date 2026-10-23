@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU Relay</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e4e3de;
+    --accent: #2f6fdb; --ok: #2e8b57; --warn: #b7791f; --bad: #c0392b; --manual: #9b3fb5;
+    --run: #1b8fa6; --idle: #9a9a94; --bar: #ecebe6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151514; --panel: #1f1f1d; --ink: #ecebe6; --muted: #9a9a94; --line: #33332f;
+      --accent: #6d9cf0; --ok: #5cbf86; --warn: #e0a84a; --bad: #e5675a; --manual: #c77ddf;
+      --run: #4cc0d6; --idle: #77776f; --bar: #2b2b28;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px;
+           border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; }
+  .pill { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line);
+          color: var(--muted); white-space: nowrap; }
+  .pill.on { color: var(--ok); border-color: var(--ok); }
+  .pill.off { color: var(--warn); border-color: var(--warn); }
+  .spacer { flex: 1; }
+  .updated { color: var(--muted); font-size: 12px; }
+  main { max-width: 1180px; margin: 0 auto; padding: 18px 20px 40px; display: grid; gap: 18px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+            padding: 14px 16px; min-width: 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+       margin: 0 0 10px; font-weight: 600; }
+  .banner { border-color: var(--manual); background: color-mix(in srgb, var(--manual) 10%, var(--panel)); }
+  .banner p { margin: 4px 0; }
+  code { font: 12.5px ui-monospace, "Cascadia Mono", Consolas, monospace;
+         background: var(--bar); padding: 1px 6px; border-radius: 4px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line);
+           vertical-align: middle; white-space: nowrap; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.msg { color: var(--muted); max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+  tbody tr.job { cursor: pointer; }
+  tbody tr.job:hover, tbody tr.job.selected { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .state { font-weight: 600; }
+  .s-completed { color: var(--ok); } .s-running, .s-launching, .s-assembling { color: var(--run); }
+  .s-failed_user, .s-failed_infra, .s-crashed { color: var(--bad); }
+  .s-awaiting_user { color: var(--manual); } .s-waiting_for_quota, .s-paused { color: var(--warn); }
+  .s-queued, .s-cancelled, .s-handoff { color: var(--muted); }
+  .progress { width: 130px; height: 7px; background: var(--bar); border-radius: 4px; overflow: hidden;
+              display: inline-block; vertical-align: middle; margin-right: 6px; }
+  .progress > span { display: block; height: 100%; background: var(--accent); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .card .name { font-weight: 650; }
+  .card .meta { color: var(--muted); font-size: 12px; }
+  .budget { height: 8px; background: var(--bar); border-radius: 4px; overflow: hidden; margin: 8px 0 4px; }
+  .budget > span { display: block; height: 100%; background: var(--ok); }
+  .budget.low > span { background: var(--warn); } .budget.empty > span { background: var(--bad); }
+  .detail-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+  .detail-head .title { font-size: 16px; font-weight: 650; }
+  .actions { display: flex; gap: 8px; margin-left: auto; }
+  button { font: inherit; font-size: 13px; padding: 4px 12px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.danger.armed { border-color: var(--bad); color: var(--bad); }
+  .note { color: var(--muted); margin: 6px 0 0; }
+  .timeline { position: relative; height: 26px; background: var(--bar); border-radius: 6px;
+              margin: 12px 0 4px; overflow: hidden; }
+  .timeline > span { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; min-width: 3px; }
+  .o-completed { background: var(--ok); } .o-handoff { background: var(--accent); }
+  .o-crashed, .o-failed_infra, .o-failed_user, .o-non_resumable { background: var(--bad); }
+  .o-running { background: var(--run); } .o-awaiting_user { background: var(--manual); }
+  .o-cancelled, .o-launching { background: var(--idle); }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px;
+              vertical-align: -1px; }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+  pre.log { margin: 0; max-height: 420px; overflow: auto; padding: 10px; border-radius: 6px;
+            background: var(--bar); font: 12px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace;
+            white-space: pre-wrap; word-break: break-word; }
+  ul.events { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow: auto; }
+  ul.events li { padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  ul.events time { color: var(--muted); font-size: 12px; margin-right: 6px; }
+  .empty { color: var(--muted); padding: 8px 0; }
+  .error { color: var(--bad); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>GPU Relay</h1>
+  <span id="controller" class="pill">controller …</span>
+  <span class="spacer"></span>
+  <span id="updated" class="updated"></span>
+</header>
+<main>
+  <section id="colab" class="banner" hidden>
+    <h2>Colab action needed</h2>
+    <div id="colab-list"></div>
+  </section>
+
+  <section>
+    <h2>Jobs</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Job</th><th>Name</th><th>State</th><th>Backend</th><th>Progress</th>
+          <th>GPU used</th><th>ETA</th><th>Segs</th><th>Message</th></tr></thead>
+        <tbody id="jobs"></tbody>
+      </table>
+    </div>
+    <div id="jobs-empty" class="empty" hidden>No jobs yet. Submit one with <code>gpurelay submit script.py</code>.</div>
+  </section>
+
+  <section id="detail" hidden>
+    <div class="detail-head">
+      <span class="title" id="d-title"></span>
+      <span id="d-state" class="state"></span>
+      <div class="actions">
+        <button id="b-pause" data-action="pause">Pause</button>
+        <button id="b-resume" data-action="resume">Resume</button>
+        <button id="b-cancel" data-action="cancel" class="danger">Cancel</button>
+      </div>
+    </div>
+    <p class="note" id="d-summary"></p>
+    <p class="note" id="d-fit"></p>
+    <p class="note error" id="d-action-msg" hidden></p>
+    <div class="timeline" id="d-timeline"></div>
+    <div class="legend">
+      <span><i class="o-completed"></i>completed</span><span><i class="o-handoff"></i>handed off</span>
+      <span><i class="o-running"></i>running</span><span><i class="o-awaiting_user"></i>waiting for you</span>
+      <span><i class="o-crashed"></i>crashed / failed</span><span><i class="o-cancelled"></i>cancelled</span>
+    </div>
+    <div class="table-wrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>#</th><th>Backend</th><th>GPU</th><th>State</th><th>Duration</th>
+          <th>Checkpoints</th><th>Message</th></tr></thead>
+        <tbody id="d-segments"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="grid2" id="detail-more" hidden>
+    <section>
+      <h2>Log <span id="log-info" class="updated"></span></h2>
+      <pre class="log" id="log"></pre>
+    </section>
+    <section>
+      <h2>Events</h2>
+      <ul class="events" id="events"></ul>
+    </section>
+  </div>
+
+  <section>
+    <h2>GPU budget</h2>
+    <div class="cards" id="backends"></div>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let selected = null, lastLogLength = -1;
+
+function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props)) {
+    if (key === "class") node.className = value;
+    else if (key === "style") node.setAttribute("style", value);
+    else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+    else node.setAttribute(key, value);
+  }
+  for (const child of children) {
+    if (child === null || child === undefined) continue;
+    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+
+function hours(h) {
+  if (h === null || h === undefined) return "–";
+  if (h < 1 / 60) return Math.round(h * 3600) + "s";
+  if (h < 1) return Math.round(h * 60) + "m";
+  return h.toFixed(1) + "h";
+}
+function when(iso) { return iso ? new Date(iso).toLocaleString() : "–"; }
+function duration(s) { return hours(s / 3600); }
+
+async function getJSON(url) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || response.statusText);
+  return response.json();
+}
+
+function progressCell(job) {
+  if (job.completed === null || job.completed === undefined) return job.progress || "–";
+  if (!job.total) return String(job.completed);
+  const pct = Math.min(100, (100 * job.completed) / job.total);
+  return el("span", {}, el("span", { class: "progress" }, el("span", { style: `width:${pct}%` })),
+            `${job.completed}/${job.total}`);
+}
+
+function renderOverview(data) {
+  const pill = $("controller");
+  pill.textContent = data.controller_running ? "controller running" : "controller stopped";
+  pill.className = "pill " + (data.controller_running ? "on" : "off");
+  pill.title = data.controller_running ? "" : "Start it with: gpurelay up";
+  $("updated").textContent = "updated " + new Date().toLocaleTimeString();
+
+  const colab = data.colab_actions;
+  $("colab").hidden = colab.length === 0;
+  $("colab-list").replaceChildren(...colab.map((c) =>
+    el("p", {}, `${c.name} (${c.job_id}) can continue on Colab: `,
+       el("a", { href: `/api/jobs/${encodeURIComponent(c.job_id)}/colab-notebook` },
+          "download the notebook"),
+       " (or run ", el("code", {}, c.command), " for the steps).")));
+
+  const rows = data.jobs.map((job) => el("tr", {
+      class: "job" + (job.id === selected ? " selected" : ""),
+      onclick: () => select(job.id),
+    },
+    el("td", {}, el("code", {}, job.id)),
+    el("td", {}, job.name),
+    el("td", { class: `state s-${job.state}` }, job.state.replace(/_/g, " ")),
+    el("td", {}, job.backend || "–"),
+    el("td", {}, progressCell(job)),
+    el("td", {}, hours(job.used_h)),
+    el("td", {}, job.eta_h === null ? "–" : `~${hours(job.eta_h)} (${job.eta_basis})`),
+    el("td", {}, job.segments),
+    el("td", { class: "msg", title: job.message }, job.message)));
+  $("jobs").replaceChildren(...rows);
+  $("jobs-empty").hidden = data.jobs.length > 0;
+
+  $("backends").replaceChildren(...data.backends.map((b) => {
+    let bar = null;
+    if (b.budget_h && b.remaining_h !== null) {
+      const frac = Math.max(0, Math.min(1, b.remaining_h / b.budget_h));
+      bar = el("div", { class: "budget" + (frac === 0 ? " empty" : frac < 0.1 ? " low" : "") },
+               el("span", { style: `width:${100 * frac}%` }));
+    }
+    return el("div", { class: "card" },
+      el("div", { class: "name" }, b.name),
+      el("div", { class: "meta" }, `${b.automated ? "automated" : "manual"} · ${b.gpu || "GPU –"} · ` +
+                                   `${b.running}/${b.max_concurrent} running`),
+      bar,
+      el("div", {}, `remaining ${b.remaining}`),
+      el("div", { class: "meta" }, `budget ${b.budget} · used ${hours(b.used_h)} this window` +
+                                   (b.next_reset ? ` · reset ${when(b.next_reset)}` : "")));
+  }));
+}
+
+function renderDetail(data) {
+  const job = data.job;
+  $("detail").hidden = false;
+  $("detail-more").hidden = false;
+  $("d-title").textContent = `${job.name} · ${job.id}`;
+  $("d-state").textContent = job.state.replace(/_/g, " ");
+  $("d-state").className = `state s-${job.state}`;
+  const progress = job.progress ? `progress ${job.progress}, ` : "";
+  $("d-summary").textContent = `${progress}${hours(job.used_h)} GPU time used, ${job.segments} segment(s)` +
+    (job.requested ? ` · ${job.requested} requested (the controller applies it)` : "") +
+    (job.message ? ` · ${job.message}` : "");
+  $("d-fit").textContent = data.fit || "";
+  $("b-pause").disabled = job.terminal || job.state === "paused" || job.requested !== null;
+  $("b-resume").disabled = job.state !== "paused" || job.requested !== null;
+  $("b-cancel").disabled = job.terminal || job.requested === "cancel";
+
+  const segs = data.segments.filter((s) => s.started_at);
+  const timeline = $("d-timeline");
+  if (segs.length) {
+    const start = Math.min(...segs.map((s) => Date.parse(s.started_at)));
+    const end = Math.max(...segs.map((s) => Date.parse(s.started_at) + 1000 * s.duration_s));
+    const span = Math.max(1, end - start);
+    timeline.replaceChildren(...segs.map((s) => {
+      const left = (100 * (Date.parse(s.started_at) - start)) / span;
+      const width = (100 * 1000 * s.duration_s) / span;
+      const kind = s.outcome || s.state;
+      return el("span", { class: `o-${kind}`, style: `left:${left}%;width:${width}%`,
+        title: `#${s.index} ${s.backend} · ${kind} · ${duration(s.duration_s)}` });
+    }));
+  } else timeline.replaceChildren();
+
+  $("d-segments").replaceChildren(...data.segments.map((s) => el("tr", {},
+    el("td", {}, s.index), el("td", {}, s.role === "worker" ? `${s.backend} (worker)` : s.backend),
+    el("td", {}, s.gpu || "–"),
+    el("td", { class: `state s-${s.outcome || s.state}` }, (s.outcome || s.state).replace(/_/g, " ")),
+    el("td", {}, duration(s.duration_s)),
+    el("td", {}, `${s.start_checkpoint ?? "–"} → ${s.end_checkpoint ?? "–"}`),
+    el("td", { class: "msg", title: s.message }, s.message))));
+  $("events").replaceChildren(...data.events.map((e) =>
+    el("li", {}, el("time", {}, new Date(e.at).toLocaleTimeString()), `${e.kind}: ${e.message}`)));
+}
+
+async function refreshLog() {
+  if (!selected) return;
+  try {
+    const data = await getJSON(`/api/jobs/${encodeURIComponent(selected)}/log`);
+    if (data.length === lastLogLength) return;
+    const pre = $("log");
+    const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+    pre.textContent = data.text || "(no output committed yet: it appears after the first checkpoint)";
+    $("log-info").textContent = data.final ? "· final" : `· committed so far (${data.length} chars)`;
+    lastLogLength = data.length;
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+  } catch (err) {
+    $("log-info").textContent = String(err.message || err);
+  }
+}
+
+async function refresh() {
+  try {
+    renderOverview(await getJSON("/api/overview"));
+    if (selected) renderDetail(await getJSON(`/api/jobs/${encodeURIComponent(selected)}`));
+  } catch (err) {
+    $("updated").textContent = "cannot reach the dashboard server: " + (err.message || err);
+  }
+}
+
+function select(id) {
+  selected = id;
+  lastLogLength = -1;
+  $("log").textContent = "";
+  $("d-action-msg").hidden = true;
+  history.replaceState(null, "", "#" + id);
+  refresh().then(refreshLog);
+}
+
+let armed = null;
+for (const button of document.querySelectorAll("button[data-action]")) {
+  button.addEventListener("click", async () => {
+    const action = button.dataset.action;
+    if (action === "cancel" && armed !== button) {  // two clicks to cancel, no browser dialog
+      armed = button; button.classList.add("armed"); button.textContent = "Click again to cancel";
+      setTimeout(() => { armed = null; button.classList.remove("armed"); button.textContent = "Cancel"; }, 4000);
+      return;
+    }
+    armed = null; button.classList.remove("armed"); button.textContent = action[0].toUpperCase() + action.slice(1);
+    const msg = $("d-action-msg");
+    try {
+      const response = await fetch(`/api/jobs/${encodeURIComponent(selected)}/${action}`,
+                                   { method: "POST", headers: { "X-GPURelay-Action": "1" } });
+      const body = await response.json();
+      msg.hidden = response.ok;
+      msg.textContent = response.ok ? "" : body.detail;
+    } catch (err) { msg.hidden = false; msg.textContent = String(err.message || err); }
+    refresh();
+  });
+}
+
+if (location.hash.length > 1) selected = decodeURIComponent(location.hash.slice(1));
+refresh().then(refreshLog);
+setInterval(refresh, 5000);
+setInterval(refreshLog, 8000);
+</script>
+</body>
+</html>

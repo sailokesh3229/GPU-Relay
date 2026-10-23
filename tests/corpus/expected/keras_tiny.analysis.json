@@ -1,0 +1,39 @@
+{
+  "path": "keras_tiny.py",
+  "kind": "script",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 15,
+      "lines": [
+        36,
+        44
+      ],
+      "statement": "Expr",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "B (keras hook)"
+      ],
+      "loops": [],
+      "notes": []
+    }
+  ],
+  "simple_statements": 13,
+  "frameworks": {
+    "keras": {
+      "supported_majors": [
+        3
+      ]
+    }
+  },
+  "risks": [],
+  "suggestions": [],
+  "environment": {
+    "third_party_imports": [
+      "keras",
+      "numpy"
+    ]
+  },
+  "format": 1
+}

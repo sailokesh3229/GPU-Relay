@@ -1,0 +1,126 @@
+{
+  "path": "vae_fid.py",
+  "kind": "script",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 24,
+      "lines": [
+        63,
+        79
+      ],
+      "statement": "For",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "C (loop instrumentation)"
+      ],
+      "loops": [
+        {
+          "line": 63,
+          "header": "for epoch in range(EPOCHS)",
+          "kind": "for",
+          "safe_points": true
+        },
+        {
+          "line": 66,
+          "header": "for i in range(0, len(data), 128)",
+          "kind": "for",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    },
+    {
+      "index": 30,
+      "lines": [
+        97,
+        98
+      ],
+      "statement": "For",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "C (loop instrumentation)"
+      ],
+      "loops": [
+        {
+          "line": 97,
+          "header": "for p in extractor.parameters()",
+          "kind": "for",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    },
+    {
+      "index": 32,
+      "lines": [
+        101,
+        103
+      ],
+      "statement": "With",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "C (loop instrumentation)"
+      ],
+      "loops": [
+        {
+          "line": 102,
+          "header": "for start in range(0, len(data), CHUNK)",
+          "kind": "for",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    },
+    {
+      "index": 35,
+      "lines": [
+        107,
+        113
+      ],
+      "statement": "With",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "C (loop instrumentation)"
+      ],
+      "loops": [
+        {
+          "line": 108,
+          "header": "for start in range(0, N_GEN, CHUNK)",
+          "kind": "for",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "simple_statements": 26,
+  "frameworks": {},
+  "risks": [],
+  "suggestions": [
+    {
+      "kind": "mixed_precision",
+      "message": "training without mixed precision: torch.autocast + GradScaler usually cuts GPU time substantially on GPUs with tensor cores (e.g. T4)",
+      "line": null,
+      "cell": null
+    },
+    {
+      "kind": "cache_features",
+      "message": "FID-style metric: real-image features never change; compute them once, save them (e.g. np.save), and reuse them across runs instead of recomputing",
+      "line": null,
+      "cell": null
+    }
+  ],
+  "environment": {
+    "third_party_imports": [
+      "matplotlib",
+      "numpy",
+      "torch"
+    ]
+  },
+  "format": 1
+}

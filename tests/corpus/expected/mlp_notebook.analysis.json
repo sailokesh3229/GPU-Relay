@@ -1,0 +1,54 @@
+{
+  "path": "mlp_notebook.ipynb",
+  "kind": "notebook",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 3,
+      "lines": [
+        1,
+        16
+      ],
+      "statement": "Cell",
+      "level": "FULL",
+      "cell": 4,
+      "covered_by": [
+        "C (loop instrumentation)"
+      ],
+      "loops": [
+        {
+          "line": 2,
+          "header": "for epoch in range(EPOCHS)",
+          "kind": "for",
+          "safe_points": true
+        },
+        {
+          "line": 5,
+          "header": "for i in range(0, len(X), 64)",
+          "kind": "for",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "simple_statements": 6,
+  "frameworks": {},
+  "risks": [],
+  "suggestions": [
+    {
+      "kind": "mixed_precision",
+      "message": "training without mixed precision: torch.autocast + GradScaler usually cuts GPU time substantially on GPUs with tensor cores (e.g. T4)",
+      "line": null,
+      "cell": null
+    }
+  ],
+  "environment": {
+    "third_party_imports": [
+      "matplotlib",
+      "numpy",
+      "torch"
+    ]
+  },
+  "format": 1
+}

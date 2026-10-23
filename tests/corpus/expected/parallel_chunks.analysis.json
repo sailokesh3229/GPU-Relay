@@ -1,0 +1,39 @@
+{
+  "path": "parallel_chunks.py",
+  "kind": "script",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 11,
+      "lines": [
+        21,
+        25
+      ],
+      "statement": "For",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "D (SDK)"
+      ],
+      "loops": [
+        {
+          "line": 21,
+          "header": "for chunk in relay.chunks(range(N), SIZE, parallel=True, seed=11)",
+          "kind": "sdk",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "simple_statements": 12,
+  "frameworks": {},
+  "risks": [],
+  "suggestions": [],
+  "environment": {
+    "third_party_imports": [
+      "gpurelay"
+    ]
+  },
+  "format": 1
+}

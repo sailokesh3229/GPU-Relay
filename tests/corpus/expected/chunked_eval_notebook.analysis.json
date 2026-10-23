@@ -1,0 +1,39 @@
+{
+  "path": "chunked_eval_notebook.ipynb",
+  "kind": "notebook",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 3,
+      "lines": [
+        1,
+        6
+      ],
+      "statement": "Cell",
+      "level": "FULL",
+      "cell": 4,
+      "covered_by": [
+        "C (loop instrumentation)"
+      ],
+      "loops": [
+        {
+          "line": 1,
+          "header": "for start in range(0, N_ITEMS, 20)",
+          "kind": "for",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "simple_statements": 3,
+  "frameworks": {},
+  "risks": [],
+  "suggestions": [],
+  "environment": {
+    "third_party_imports": [
+      "IPython"
+    ]
+  },
+  "format": 1
+}

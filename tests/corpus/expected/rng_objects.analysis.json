@@ -1,0 +1,46 @@
+{
+  "path": "rng_objects.py",
+  "kind": "script",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 10,
+      "lines": [
+        19,
+        22
+      ],
+      "statement": "For",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "C (loop instrumentation)"
+      ],
+      "loops": [
+        {
+          "line": 19,
+          "header": "for step in range(30)",
+          "kind": "for",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "simple_statements": 6,
+  "frameworks": {},
+  "risks": [
+    {
+      "kind": "nondeterminism",
+      "message": "randomness is used but no RNG is seeded; resumed runs restore RNG state, but an uninterrupted reference run is not reproducible (seed random/numpy/torch)",
+      "line": null,
+      "cell": null
+    }
+  ],
+  "suggestions": [],
+  "environment": {
+    "third_party_imports": [
+      "numpy"
+    ]
+  },
+  "format": 1
+}

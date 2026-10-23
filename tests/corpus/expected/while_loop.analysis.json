@@ -1,0 +1,66 @@
+{
+  "path": "while_loop.py",
+  "kind": "script",
+  "overall": "PARTIAL",
+  "blocks": [
+    {
+      "index": 8,
+      "lines": [
+        16,
+        19
+      ],
+      "statement": "For",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "C (loop instrumentation)"
+      ],
+      "loops": [
+        {
+          "line": 16,
+          "header": "for _ in range(20)",
+          "kind": "for",
+          "safe_points": true
+        }
+      ],
+      "notes": []
+    },
+    {
+      "index": 12,
+      "lines": [
+        24,
+        29
+      ],
+      "statement": "While",
+      "level": "PARTIAL",
+      "cell": null,
+      "covered_by": [],
+      "loops": [
+        {
+          "line": 24,
+          "header": "while steps < 30",
+          "kind": "while",
+          "safe_points": false
+        }
+      ],
+      "notes": [
+        "line 24: this `while` loop has no safe points (set `instrument_while = true` under [runtime] to give it safe points); the block restarts from its beginning after an interruption"
+      ]
+    }
+  ],
+  "simple_statements": 9,
+  "frameworks": {},
+  "risks": [
+    {
+      "kind": "uninstrumented_loop",
+      "message": "`while steps < 30` is not instrumented in v1 (restarts as a block)",
+      "line": 24,
+      "cell": null
+    }
+  ],
+  "suggestions": [],
+  "environment": {
+    "third_party_imports": []
+  },
+  "format": 1
+}

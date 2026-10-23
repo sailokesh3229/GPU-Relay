@@ -1,0 +1,155 @@
+# %% [markdown]
+# # GPU Relay: continue `$job_name` on Colab
+#
+# Job `$job_id`. This notebook continues **your own job** from its latest checkpoint and runs
+# it here, in this notebook, while you watch. GPU Relay never controls Colab: you open the
+# notebook and press Run. It contains no secrets.
+#
+# **Once per Colab account:**
+# 1. Click the key icon (*Secrets*) on the left, add a secret named `$secret_name` holding a
+#    Hugging Face token (starts with `hf_`) with write access to `$repo_id`, and turn on
+#    *Notebook access* for this notebook.
+#
+# **Each time GPU Relay asks for a Colab session:**
+# 1. *Runtime → Change runtime type →* choose a GPU.
+# 2. *Runtime → Run all.* Keep the tab open.
+#
+# Near the session's time limit the job saves a checkpoint and hands off; the GPU Relay
+# controller on your computer continues it. To stop early, interrupt the last cell (■): the
+# job checkpoints at its next safe point and hands off.
+
+# %%
+import json
+import os
+import subprocess
+import sys
+import time
+
+START = time.time()
+REPO_ID = $repo_id_py
+JOB_ID = $job_id_py
+WHEEL = $wheel_py
+SECRET_NAME = $secret_name_py
+STALE_S = $stale_s
+SETTINGS = $settings_literal
+
+
+class GpuRelayStop(Exception):
+    """Stops "Run all" with an explanation; nothing has been started."""
+
+
+try:
+    from google.colab import userdata
+except ImportError:
+    raise GpuRelayStop("this notebook is meant to run in Google Colab") from None
+try:
+    token = userdata.get(SECRET_NAME) or ""
+except Exception as exc:  # secret missing, or notebook access not granted
+    raise GpuRelayStop(
+        f"add a Colab secret named {SECRET_NAME} (key icon) and turn on notebook access "
+        f"({type(exc).__name__})"
+    ) from None
+if not token.startswith("hf_"):
+    raise GpuRelayStop(f"the secret {SECRET_NAME} must hold a Hugging Face token (hf_...)")
+os.environ["HF_TOKEN"] = token
+print("storage token loaded")
+
+# %%
+# Is the controller asking for a Colab session for this job right now?
+try:
+    import huggingface_hub  # noqa: F401
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "huggingface_hub>=0.24"])
+from datetime import datetime
+
+from huggingface_hub import hf_hub_download
+
+
+def read_json(name):
+    try:
+        path = hf_hub_download(
+            REPO_ID, f"jobs/{JOB_ID}/{name}", repo_type="dataset", token=token,
+            force_download=True, local_dir="/tmp/gpurelay/meta",
+        )
+    except Exception as exc:
+        if getattr(getattr(exc, "response", None), "status_code", None) == 404:
+            return None
+        raise
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+request = read_json("manual_session.json")
+status = read_json("status.json")
+latest = read_json("checkpoints/LATEST.json")
+if request is None:
+    raise GpuRelayStop(
+        "the controller is not asking for a Colab session for this job right now "
+        "(check `gpurelay status` on your computer)"
+    )
+SEGMENT_ID = request["segment_id"]
+SEQ = latest["seq"] if latest else None
+if status and status["segment_id"] == SEGMENT_ID:
+    beat = datetime.fromisoformat(status["heartbeat_at"]).timestamp()
+    if status["state"] == "running" and time.time() - beat < STALE_S:
+        raise GpuRelayStop("this session is already running (another tab or runtime?)")
+    raise GpuRelayStop(
+        f"this session already ran ({status['state']}); the controller asks for a new one "
+        "when the job needs Colab again (check `gpurelay status`)"
+    )
+if SEQ != request.get("start_checkpoint_seq"):
+    raise GpuRelayStop(
+        "the job has moved on since this session was requested (it ran elsewhere); "
+        "check `gpurelay status`"
+    )
+DEADLINE_S = float(request["deadline_s"])
+where = f"resuming from checkpoint {SEQ}" if SEQ is not None else "starting the job"
+print(f"segment {SEGMENT_ID}: {where}; hand-off after {DEADLINE_S / 3600:.1f} h")
+
+# %%
+# Install the exact GPU Relay runtime this job was submitted with.
+wheel = hf_hub_download(
+    REPO_ID, f"jobs/{JOB_ID}/bundle/{WHEEL}", repo_type="dataset", token=token,
+    local_dir="/tmp/gpurelay/wheel",
+)
+subprocess.check_call(
+    [sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", wheel]
+)
+print(f"runtime installed ({WHEEL})")
+
+# %%
+# Run the job; its output streams below. Interrupt (■) to hand off early at a safe point.
+import signal
+
+command = [
+    sys.executable, "-m", "gpurelay.runtime.entry",
+    "--job", JOB_ID,
+    "--segment", SEGMENT_ID,
+    "--storage", f"hf:{REPO_ID}",
+    "--work-dir", "/content/gpurelay/job",
+    "--runtime-dir", "/tmp/gpurelay/runtime",
+    "--backend", "colab_manual",
+    "--deadline", repr(START + DEADLINE_S),
+    "--settings", json.dumps(SETTINGS),
+    "--install-requirements",
+]
+# Same environment as every other backend (fixed hash seed: identical results on resume).
+env = dict(os.environ, PYTHONHASHSEED="0", MPLBACKEND="Agg", PYTHONUNBUFFERED="1")
+proc = subprocess.Popen(
+    command, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+)
+try:
+    for line in proc.stdout:
+        print(line, end="")
+except KeyboardInterrupt:
+    print("\n[gpurelay] interrupted: the job checkpoints at its next safe point and hands off")
+    proc.send_signal(signal.SIGTERM)
+    for line in proc.stdout:
+        print(line, end="")
+code = proc.wait()
+ENDINGS = {
+    0: "job completed; on your computer: `gpurelay fetch " + JOB_ID + "`",
+    85: "handed off at a safe point; the controller continues the job",
+    86: "the job failed with an error in its own code (see above)",
+}
+print("[gpurelay] " + ENDINGS.get(code, f"session ended with exit code {code}; the controller retries"))

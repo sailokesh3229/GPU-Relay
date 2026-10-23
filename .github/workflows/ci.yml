@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # Core install only: no torch/tensorflow (spec §16). ML tests are skipped.
+      - run: pip install -e ".[dev]"
+      - run: pytest
+
+  test-torch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e ".[dev,torch]" matplotlib
+      - run: pytest
+
+  test-frameworks:
+    runs-on: ubuntu-latest
+    env:
+      KERAS_BACKEND: torch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e ".[dev,torch,hf,lightning]" keras matplotlib
+      - run: pytest -m "hf or lightning or keras" tests/integration

@@ -1,0 +1,40 @@
+{
+  "path": "hf_trainer.py",
+  "kind": "script",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 20,
+      "lines": [
+        83,
+        83
+      ],
+      "statement": "Expr",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "B (hf hook)"
+      ],
+      "loops": [],
+      "notes": []
+    }
+  ],
+  "simple_statements": 15,
+  "frameworks": {
+    "hf": {
+      "supported_majors": [
+        4,
+        5
+      ]
+    }
+  },
+  "risks": [],
+  "suggestions": [],
+  "environment": {
+    "third_party_imports": [
+      "torch",
+      "transformers"
+    ]
+  },
+  "format": 1
+}

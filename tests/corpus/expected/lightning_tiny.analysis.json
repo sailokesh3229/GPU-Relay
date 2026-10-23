@@ -1,0 +1,52 @@
+{
+  "path": "lightning_tiny.py",
+  "kind": "script",
+  "overall": "FULL",
+  "blocks": [
+    {
+      "index": 18,
+      "lines": [
+        63,
+        63
+      ],
+      "statement": "Expr",
+      "level": "FULL",
+      "cell": null,
+      "covered_by": [
+        "B (lightning hook)"
+      ],
+      "loops": [],
+      "notes": []
+    }
+  ],
+  "simple_statements": 15,
+  "frameworks": {
+    "lightning": {
+      "supported_majors": [
+        2
+      ]
+    }
+  },
+  "risks": [],
+  "suggestions": [
+    {
+      "kind": "dataloader_workers",
+      "message": "DataLoader without worker processes: num_workers=2-4 keeps the GPU fed (Kaggle/Colab sessions have 2-4 CPU cores)",
+      "line": 20,
+      "cell": null
+    },
+    {
+      "kind": "pin_memory",
+      "message": "DataLoader(pin_memory=True) speeds up host-to-GPU copies",
+      "line": 20,
+      "cell": null
+    }
+  ],
+  "environment": {
+    "third_party_imports": [
+      "lightning",
+      "torch"
+    ]
+  },
+  "format": 1
+}

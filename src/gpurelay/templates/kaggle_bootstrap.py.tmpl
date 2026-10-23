@@ -1,0 +1,80 @@
+"""GPU Relay bootstrap for a Kaggle session (generated -- contains no secrets).
+
+job $job_id, segment $segment_id
+"""
+
+import glob
+import json
+import os
+import subprocess
+import sys
+import time
+
+START = time.time()
+REPO_ID = "$repo_id"
+JOB_ID = "$job_id"
+SEGMENT_ID = "$segment_id"
+WHEEL = "$wheel"
+DEADLINE_S = $deadline_s
+SETTINGS = $settings_literal
+WORK_DIR = "/kaggle/working/job"
+RUNTIME_DIR = "/tmp/gpurelay/runtime"
+
+
+def log(message):
+    print(f"[gpurelay bootstrap] {message}", flush=True)
+
+
+def pip(*args):
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", *args]
+    )
+
+
+# The storage token comes from the user's private secrets dataset, never from this file.
+matches = glob.glob("/kaggle/input/**/$secrets_file", recursive=True)
+if not matches:
+    log("secrets dataset not attached ($secrets_file not found under /kaggle/input)")
+    sys.exit(87)
+with open(matches[0], encoding="utf-8") as fh:
+    token = json.load(fh).get("hf_token", "")
+if not token.startswith("hf_"):
+    log("the secrets dataset does not hold a Hugging Face token (expected hf_...); "
+        "run `gpurelay init --rotate-kaggle-secret` on your computer")
+    sys.exit(87)
+os.environ["HF_TOKEN"] = token
+log("storage credentials loaded")
+
+try:
+    import huggingface_hub  # noqa: F401
+except ImportError:
+    pip("huggingface_hub>=0.24")
+from huggingface_hub import hf_hub_download
+
+wheel = hf_hub_download(
+    REPO_ID,
+    f"jobs/{JOB_ID}/bundle/{WHEEL}",
+    repo_type="dataset",
+    token=os.environ["HF_TOKEN"],
+    local_dir="/tmp/gpurelay/wheel",
+)
+pip(wheel)
+log(f"runtime installed ({WHEEL}); starting segment {SEGMENT_ID}")
+
+command = [
+    sys.executable, "-m", "gpurelay.runtime.entry",
+    "--job", JOB_ID,
+    "--segment", SEGMENT_ID,
+    "--storage", f"hf:{REPO_ID}",
+    "--work-dir", WORK_DIR,
+    "--runtime-dir", RUNTIME_DIR,
+    "--backend", "kaggle",
+    "--deadline", repr(START + DEADLINE_S),
+    "--settings", json.dumps(SETTINGS),
+    "--install-requirements",
+]
+env = dict(os.environ, PYTHONHASHSEED="0", MPLBACKEND="Agg")
+code = subprocess.call(command, env=env)
+log(f"segment finished with exit code {code}")
+# 0 = completed, 85 = handed off: both are normal ends of a session.
+sys.exit(0 if code in (0, 85) else code)
