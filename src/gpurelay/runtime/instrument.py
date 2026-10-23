@@ -34,6 +34,9 @@ MUTATING_METHODS = frozenset(
         "discard", "setdefault", "popitem", "sort", "reverse", "appendleft",
         "extendleft", "popleft", "rotate", "fill", "resize", "put", "__setitem__",
         "__delitem__", "load_state_dict", "step", "zero_grad", "train", "eval",
+        # common in-place updates of library / user objects (hardening campaign)
+        "fit", "partial_fit", "record", "push", "reset", "observe", "accumulate",
+        "increment", "inc", "tick", "feed", "consume", "collect", "send", "register",
     }
 )  # fmt: skip
 
@@ -124,6 +127,7 @@ class StatementInfo:
     call_args: frozenset[str]
     calls: frozenset[str]  # simple names of called functions (for module-function lookup)
     method_calls: frozenset[str]  # attribute names of method calls (e.g. "fit", "train")
+    receivers: frozenset[str] = frozenset()  # names whose methods are called
     loops: list[LoopInfo] = field(default_factory=list)  # instrumented (or SDK) loops
     uninstrumented: list[LoopInfo] = field(default_factory=list)
     side_effects: list[str] = field(default_factory=list)
@@ -213,6 +217,7 @@ class _Scan(ast.NodeVisitor):
         self.call_args: set[str] = set()
         self.calls: set[str] = set()
         self.method_calls: set[str] = set()
+        self.receivers: set[str] = set()  # ``x`` of any ``x.method(...)`` call
         self.side_effects: list[str] = []
         self.imports: set[str] = set()
 
@@ -306,6 +311,8 @@ class _Scan(ast.NodeVisitor):
         elif isinstance(node.func, ast.Attribute):
             attr = node.func.attr
             self.method_calls.add(attr)
+            if isinstance(node.func.value, ast.Name):
+                self.receivers.add(node.func.value.id)
             if attr in MUTATING_METHODS or (attr.endswith("_") and not attr.startswith("_")):
                 base = _base_name(node.func.value)
                 if base:
@@ -607,6 +614,7 @@ def plan_script(
                 call_args=frozenset(scan.call_args),
                 calls=frozenset(scan.calls),
                 method_calls=frozenset(scan.method_calls),
+                receivers=frozenset(scan.receivers),
                 loops=inst.loops,
                 uninstrumented=inst.uninstrumented,
                 side_effects=scan.side_effects,
@@ -706,6 +714,7 @@ def plan_cells(
                 call_args=frozenset(scan.call_args),
                 calls=frozenset(scan.calls),
                 method_calls=frozenset(scan.method_calls),
+                receivers=frozenset(scan.receivers),
                 loops=inst.loops,
                 uninstrumented=inst.uninstrumented,
                 side_effects=scan.side_effects + effects,

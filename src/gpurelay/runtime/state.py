@@ -91,6 +91,8 @@ def skip_reason(name: str, value: Any) -> str | None:
         return "module"
     if isinstance(value, type):
         return "class"
+    if is_stateful_closure(value):
+        return None  # state lives in its cells: snapshotted (hardening campaign)
     if isinstance(value, types.FunctionType | types.BuiltinFunctionType | types.MethodType):
         return "function"
     return None
@@ -119,6 +121,24 @@ def _import_again(ref: list[str]) -> Any:
     for part in ref[1].split(".") if len(ref) > 1 else ():
         target = getattr(target, part)
     return target
+
+
+def is_stateful_closure(value: Any) -> bool:
+    """A function defined by the job that captured variables (``def make(): n = [0];
+    def bump(): ...; return bump``). Replay recreates the function but not the state in its
+    cells, so it is checkpointed like a variable."""
+    return (
+        isinstance(value, types.FunctionType)
+        and bool(value.__closure__)
+        and getattr(value, "__module__", None) == "__main__"
+    )
+
+
+def is_user_object(value: Any) -> bool:
+    """An instance of a class defined by the job (``__main__``)."""
+    return type(value).__module__ == "__main__" and not isinstance(
+        value, type | types.FunctionType | types.ModuleType
+    )
 
 
 def is_torch_stateful(value: Any) -> bool:

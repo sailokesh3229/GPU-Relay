@@ -224,7 +224,9 @@ class OutputCapture:
 
     def capture_open_figures(self) -> None:
         """Save every open matplotlib figure (in figure-number order) and close it."""
-        import matplotlib.pyplot as plt
+        plt = sys.modules.get("matplotlib.pyplot")
+        if plt is None:
+            return  # the job never imported pyplot (or matplotlib is not installed): no figures
 
         for num in plt.get_fignums():
             fig = plt.figure(num)

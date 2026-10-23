@@ -49,6 +49,10 @@ class FakeHub:
     files: dict[str, bytes] = field(default_factory=dict)
     commits: list[str] = field(default_factory=list)
     fail_next: int = 0  # simulate rate limiting
+    private: bool = True
+
+    def repo_info(self, repo_id: str, repo_type: str, **_: Any) -> Any:
+        return type("Info", (), {"private": self.private})()
 
     def _maybe_fail(self) -> None:
         if self.fail_next:
@@ -200,3 +204,9 @@ def test_used_bytes_and_squash(store: HFHubStorage, hub: FakeHub) -> None:
     assert store.used_bytes() == 5
     store.squash_history()
     assert hub.commits == ["squashed"]
+
+
+def test_is_private_reflects_the_repo(hub: FakeHub, store: HFHubStorage) -> None:
+    assert store.is_private() is True
+    hub.private = False
+    assert store.is_private() is False

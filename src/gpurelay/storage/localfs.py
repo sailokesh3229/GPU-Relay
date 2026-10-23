@@ -131,6 +131,8 @@ class LocalFSStorage:
     def delete(self, remote: str) -> None:
         """Delete ``remote``; missing keys are ignored."""
         path = self._path(remote)
+        if path.is_dir():
+            return  # a directory is not a key (only a prefix of other keys): nothing to delete
         _retry_os(lambda: path.unlink(missing_ok=True))
 
     def exists(self, remote: str) -> bool:

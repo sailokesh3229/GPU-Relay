@@ -14,6 +14,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from gpurelay.pathutil import safe_join
 from gpurelay.runtime.blobs import BlobCache
 
 log = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ class WorkFileTracker:
     def materialize(self, manifest: dict[str, str]) -> None:
         """Write every manifest file into the working directory (overwriting)."""
         for rel, sha in sorted(manifest.items()):
-            self.blobs.copy_to(sha, self.root / rel)
+            self.blobs.copy_to(sha, safe_join(self.root, rel))
         self._remember(manifest)
 
     def revert(self, manifest: dict[str, str]) -> list[str]:
@@ -102,7 +103,7 @@ class WorkFileTracker:
         """
         reverted: list[str] = []
         for rel, sha in sorted(manifest.items()):
-            path = self.root / rel
+            path = safe_join(self.root, rel)
             seen = self._seen.get(rel)
             try:
                 st = path.stat()

@@ -25,6 +25,7 @@ from gpurelay.bundle.manifest import BundleManifest, StagedData
 from gpurelay.bundle.wheel import build_runtime_wheel
 from gpurelay.errors import ChecksumMismatchError, GpuRelayError, StorageNotFoundError
 from gpurelay.models import DataSourceKind, DataSpec, JobKind
+from gpurelay.pathutil import safe_join
 from gpurelay.storage.base import Storage, sha256_file
 from gpurelay.storage.layout import bundle_prefix
 
@@ -198,7 +199,7 @@ def download_bundle(storage: Storage, job_id: str, dest: Path) -> BundleManifest
     """Write the bundle's files into ``dest`` (verified) and return the manifest."""
     manifest = read_manifest(storage, job_id)
     for rel, data in _files(storage, job_id, manifest).items():
-        target = Path(dest) / rel
+        target = safe_join(Path(dest), rel)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
     return manifest

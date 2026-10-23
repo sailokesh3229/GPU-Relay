@@ -63,6 +63,10 @@ def _has_jobs(db: Path) -> bool:
 
 def import_state(home: Path, archive: Path, *, force: bool = False) -> list[str]:
     """Install an exported config and job database into ``home``."""
+    if not archive.is_file():
+        raise MigrationError(f"{archive} does not exist")
+    if not tarfile.is_tarfile(archive):
+        raise MigrationError(f"{archive} is not a GPU Relay state archive")
     db = home / STATE_DB_FILENAME
     if db.exists() and _has_jobs(db) and not force:
         raise MigrationError(

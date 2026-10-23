@@ -22,11 +22,12 @@ While the target statement re-executes in **replay** mode:
 In **passthrough** mode (statements re-executed as setup before the resume point) loops
 run completely with no events or safe points.
 
-**Adaptive nested loops** (Phase 9): a nested instrumented loop is tracked for its first
+**Adaptive loops** (Phase 9, hardening): an instrumented loop is tracked for its first
 ``PROBE_ITERATIONS`` iterations; if those take less than ``MIN_ITERATION_S`` each on average,
-the rest of that loop instance runs *untracked* (no safe points in it or in loops inside it;
-the enclosing loop's safe points remain). Tracking a tiny iteration would cost more than it
-saves. Positions stay deterministic: untracked regions never produce events.
+the rest of that loop instance runs with **sparse** safe points: iterations are not tracked
+one by one (tracking costs ~2 us each), but every ``stride`` iterations (about
+``SPARSE_INTERVAL_S``) the end of the current iteration is offered as a safe point. Loops
+inside run untracked (no events), so positions stay deterministic.
 
 Divergence from the checkpointed run raises :class:`ResumeMismatchError` (exit 88).
 """
@@ -40,6 +41,7 @@ from typing import Any
 
 PROBE_ITERATIONS = 32
 MIN_ITERATION_S = 0.0005  # below this, per-iteration tracking (~2 us) is not worth it
+SPARSE_INTERVAL_S = 0.05  # sparse mode: a safe point about this often
 
 Position = dict[str, Any]
 _Step = tuple[int, int, "str | None"]  # (event, iteration index, loop id / framework kind)
@@ -243,6 +245,15 @@ class Tracker:
             raise self._mismatch(f"iteration {index} of {plan.key} ended before the resume point")
         return self._position([list(p) for p in ctx.address], "iter")
 
+    def sparse_iteration_end(self, plan: LoopPlan, index: int) -> Position | None:
+        """Sparse mode: iteration ``index`` (untracked, no context of its own) just ended."""
+        if self.active and self.active[-1].key == plan.key:
+            self.active[-1].completed = index + 1
+        if self.target is not None:
+            return None
+        path = [*(list(step) for step in self.current.address), [plan.event, index, plan.loop_id]]
+        return self._position(path, "iter")
+
     def abandon_iteration(self, ctx: _Context) -> None:
         """Iteration left via ``break``/exception: pop without a safe point."""
         self._pop(ctx)
@@ -350,15 +361,40 @@ def run_loop(
                 continue
             timed += 1
             if timed == PROBE_ITERATIONS:
-                if time.perf_counter() - began >= PROBE_ITERATIONS * MIN_ITERATION_S:
+                elapsed = time.perf_counter() - began
+                if elapsed >= PROBE_ITERATIONS * MIN_ITERATION_S:
                     adaptive = False  # iterations are long enough: keep tracking
                     continue
-                tracker.untracked += 1
-                try:
-                    for _index, item in items:
-                        yield item
-                finally:
-                    tracker.untracked -= 1
+                stride = max(1, int(SPARSE_INTERVAL_S * PROBE_ITERATIONS / max(elapsed, 1e-9)))
+                yield from _sparse(tracker, plan, items, stride, on_safe_point)
                 break
     finally:
         tracker.exit_loop(plan)
+
+
+def _sparse(
+    tracker: Tracker,
+    plan: LoopPlan,
+    items: Iterator[tuple[int, Any]],
+    stride: int,
+    on_safe_point: Callable[[Position], None],
+) -> Iterator[Any]:
+    """The rest of a loop with tiny iterations: a safe point every ``stride`` iterations."""
+    tracker.untracked += 1
+    try:
+        countdown = stride
+        for index, item in items:
+            yield item
+            countdown -= 1
+            if countdown:
+                continue
+            countdown = stride
+            tracker.untracked -= 1
+            try:
+                position = tracker.sparse_iteration_end(plan, index)
+                if position is not None:
+                    on_safe_point(position)
+            finally:
+                tracker.untracked += 1
+    finally:
+        tracker.untracked -= 1

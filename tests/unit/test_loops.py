@@ -195,3 +195,27 @@ def test_adaptive_nested_loop_stops_tracking_tiny_iterations(
     slow = nested(0.01)  # 10 ms per iteration: tracked to the end
     assert len(slow) == 100
     assert len([p for p in points if len(p["path"]) == 2]) == 100
+
+
+def test_sparse_mode_offers_safe_points_every_stride(monkeypatch: pytest.MonkeyPatch) -> None:
+    import gpurelay.runtime.loops as loops_mod
+
+    clock = [0.0]
+    monkeypatch.setattr(loops_mod.time, "perf_counter", lambda: clock[0])
+    tracker = _tracker()
+    tracker.begin_statement(0)
+    points: list[Position] = []
+    n = 2000
+    seen = []
+    for item in run_loop(tracker, n, None, lambda s: ((i, i) for i in range(s, n)),
+                         points.append, adaptive=True):  # fmt: skip
+        clock[0] += 1e-4  # 0.1 ms per iteration: sparse, stride = 0.05 s / 0.1 ms = 500
+        seen.append(item)
+        assert tracker.loop_start(None).passthrough == (len(seen) > loops_mod.PROBE_ITERATIONS)
+    assert seen == list(range(n)) and tracker.untracked == 0
+    sparse = [p["path"][-1][1] for p in points[loops_mod.PROBE_ITERATIONS :]]
+    assert sparse == [531, 1031, 1531]  # iteration ends offered after the probe
+    # Each sparse position resumes like any iteration end.
+    resumed = _tracker(target=points[-1])
+    out = list(run_loop(resumed, n, None, lambda s: ((i, i) for i in range(s, n)), points.append))
+    assert out == list(range(1532, n))

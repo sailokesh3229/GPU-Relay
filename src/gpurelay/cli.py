@@ -91,6 +91,10 @@ def init(
     if gdrive is not None:
         import json
 
+        if not gdrive.is_file():
+            _fail(RuntimeError(f"{gdrive} does not exist: download the OAuth client JSON "
+                               "(\"Desktop app\") from Google Cloud Console first"))  # fmt: skip
+
         from gpurelay.controller.setup import setup_gdrive
         from gpurelay.credentials import GDRIVE_CREDENTIALS, set_secret
         from gpurelay.errors import GpuRelayError
@@ -342,12 +346,18 @@ def submit(
 
     if not path.is_file():
         raise typer.BadParameter(f"{path} does not exist", param_hint="PATH")
+    if path.suffix not in (".py", ".ipynb"):
+        message = f"{path.name}: submit a Python script (.py) or a notebook (.ipynb)"
+        raise typer.BadParameter(message, param_hint="PATH")
     try:
         specs = [DataSpec.parse(spec) for spec in data or []]
         estimate_h = parse_duration(estimate) / 3600 if estimate else None
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
-    analysis = analyze_path(path, requirements=requirements)
+    try:
+        analysis = analyze_path(path, requirements=requirements)
+    except SyntaxError as exc:
+        _fail(RuntimeError(f"{path.name} has a syntax error (line {exc.lineno}): {exc.msg}"))
     if analysis.overall is ResumabilityLevel.RESTART_ONLY and not accept_restart_only:
         console.print(
             "[red]this job has no safe points: any interruption restarts it from scratch. "
@@ -402,11 +412,33 @@ def up(
         logging.getLogger(noisy).setLevel(logging.WARNING)
     from gpurelay.controller.lease import ControllerLease, LeaseLostError
     from gpurelay.controller.lock import controller_lock
-    from gpurelay.errors import GpuRelayError
+    from gpurelay.errors import (
+        ConfigError,
+        GpuRelayError,
+        HardRuleViolation,
+        StorageNotFoundError,
+    )
 
     ctx = _context()
     try:
         with controller_lock(ctx.home):
+            check_private = getattr(ctx.storage, "is_private", None)
+            if check_private is not None:
+                try:
+                    public = not check_private()
+                except StorageNotFoundError as exc:
+                    raise ConfigError(
+                        f"the storage repo was not found, or your token cannot see it ({exc}); "
+                        "check `hf_repo_id` in config.toml or run `gpurelay init`"
+                    ) from exc
+                except GpuRelayError as exc:
+                    public = False
+                    console.print(f"[yellow]could not check the store's visibility: {exc}[/yellow]")
+                if public:
+                    raise HardRuleViolation(
+                        "the storage repo is PUBLIC: your code, data and checkpoints would be "
+                        "visible to anyone. Make it private on the Hugging Face website first."
+                    )
             lease = ControllerLease(ctx.storage)
             lease.acquire(takeover=takeover)  # one controller per store, across machines
             ctx.controller.lease = lease
@@ -794,7 +826,10 @@ def dashboard(
         import webbrowser
 
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
-    uvicorn.run(create_app(ctx), host=host, port=port, log_level="warning")
+    from gpurelay.dashboard.app import LOCAL_HOSTS
+
+    allowed = LOCAL_HOSTS | {host}
+    uvicorn.run(create_app(ctx, allowed_hosts=allowed), host=host, port=port, log_level="warning")
 
 
 if __name__ == "__main__":  # pragma: no cover

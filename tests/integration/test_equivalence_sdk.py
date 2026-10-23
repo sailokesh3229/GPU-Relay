@@ -178,3 +178,35 @@ def test_already_completed_job_is_not_rerun(tmp_path: Path) -> None:
     result, _ = _run_script(tmp_path, "print('hello')\n")
     assert result.state is JobState.COMPLETED
     assert (tmp_path / "final" / "log.txt").read_text() == "hello\n"
+
+
+@pytest.mark.parametrize("parallel", [False, True])
+def test_load_results_after_a_resume_past_the_chunks_loop(tmp_path: Path, parallel: bool) -> None:
+    # Hardening regression (found by test_stress): the chunks loop takes longer than the
+    # replay threshold, so a resume in the loop after it skips the chunks statement.
+    # relay.load_results() must still find the bucket that loop filled.
+    script = tmp_path / "job_script.py"
+    script.write_text(
+        textwrap.dedent(
+            f"""\
+            import time
+            import gpurelay as relay
+
+            for chunk in relay.chunks(range(8), 2, parallel={parallel}):
+                time.sleep(0.3)
+                relay.save_result(chunk.id, sum(chunk))
+            for step in range(40):
+                time.sleep(0.2)
+            results = relay.load_results()
+            print("results", results)
+            assert results == [1, 5, 9, 13], results
+            """
+        )
+    )
+    settings = RuntimeSettings(
+        min_interval_s=0.3, max_lost_work_s=1.0, safety_margin_s=0.3, heartbeat_s=1,
+        replay_threshold_s=0.5,
+    )  # fmt: skip
+    run = run_job(script, tmp_path / "run", settings=settings, deadline_s=5.0)
+    assert run.outcomes.count("handoff") >= 1, run.outcomes
+    assert "results [1, 5, 9, 13]" in run.log

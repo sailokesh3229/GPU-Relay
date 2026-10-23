@@ -134,3 +134,30 @@ def test_parse_duration_zero_when_allowed() -> None:
     assert parse_duration("0h", allow_zero=True) == 0.0
     with pytest.raises(ValueError):
         parse_duration("-1h", allow_zero=True)
+
+
+def test_figure_capture_needs_no_matplotlib(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Notebook cells end with a figure capture; without matplotlib it must be a no-op
+    (found on Linux: every notebook job failed where matplotlib was not installed)."""
+    import builtins
+    import sys
+
+    from gpurelay.runtime.blobs import BlobCache
+    from gpurelay.runtime.capture import OutputCapture
+    from gpurelay.storage import LocalFSStorage
+
+    real_import = builtins.__import__
+
+    def no_matplotlib(name: str, *args: object, **kwargs: object) -> object:
+        if name.startswith("matplotlib"):
+            raise ModuleNotFoundError("No module named 'matplotlib'")
+        return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.delitem(sys.modules, "matplotlib.pyplot", raising=False)
+    monkeypatch.setattr(builtins, "__import__", no_matplotlib)
+    blobs = BlobCache(tmp_path / "blobs", LocalFSStorage(tmp_path / "store"), "job-1")
+    capture = OutputCapture(tmp_path / "log.txt", blobs)
+    capture.capture_open_figures()
+    assert capture.figures == []

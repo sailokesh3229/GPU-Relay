@@ -22,6 +22,7 @@ from typing import Any
 from gpurelay.bundle.packager import read_bundle_file, read_manifest
 from gpurelay.errors import GpuRelayError
 from gpurelay.models import utcnow
+from gpurelay.pathutil import safe_join
 from gpurelay.runtime.blobs import BlobCache
 from gpurelay.runtime.checkpoint import load_latest_checkpoint
 from gpurelay.storage.base import Storage
@@ -99,7 +100,7 @@ def assemble(
                 )
 
         for rel, sha in sorted(runtime.get("files", {}).items()):
-            blobs.copy_to(sha, out_dir / "files" / rel)
+            blobs.copy_to(sha, safe_join(out_dir / "files", rel))
             result.files.append(rel)
 
         report = {

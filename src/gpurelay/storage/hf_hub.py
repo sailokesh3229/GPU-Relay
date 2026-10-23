@@ -252,6 +252,14 @@ class HFHubStorage:
                 return None
             return sha256_file(target)
 
+    def is_private(self) -> bool:
+        """Whether the repo is private now (it may have been made public after init)."""
+        info = self._call(
+            lambda: self.api.repo_info(self.repo_id, repo_type=REPO_TYPE, token=self.token),
+            "repo info",
+        )
+        return bool(getattr(info, "private", False))
+
     def used_bytes(self) -> int:
         """Total size of the files currently in the repo (history excluded)."""
         items = self._call(

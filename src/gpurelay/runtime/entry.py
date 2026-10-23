@@ -17,6 +17,7 @@ from gpurelay import sdk
 from gpurelay.bundle.packager import download_bundle, stage_data
 from gpurelay.config import RuntimeSettings
 from gpurelay.models import ExitCode, JobKind, RuntimeState
+from gpurelay.retry import RetryPolicy
 from gpurelay.runtime.checkpoint import load_latest_checkpoint
 from gpurelay.runtime.env import env_fingerprint
 from gpurelay.runtime.executor_script import run_script
@@ -28,6 +29,10 @@ from gpurelay.storage.factory import open_storage
 from gpurelay.storage.layout import segment_env_key, segment_log_key, status_key
 
 log = logging.getLogger("gpurelay.runtime")
+
+# Session setup only reads inputs and writes the environment report, so each step can
+# simply be repeated: one transient storage error must not cost the whole session.
+SETUP_RETRY = RetryPolicy(attempts=5, base_delay_s=1.0)
 
 _STATE_FOR_EXIT = {
     ExitCode.COMPLETED: RuntimeState.COMPLETED,
@@ -90,25 +95,38 @@ def main(argv: list[str] | None = None) -> int:
     runtime_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        bundle = download_bundle(storage, args.job, work_dir)
-        staged = stage_data(storage, bundle, work_dir)
+        bundle = SETUP_RETRY.call(
+            lambda: download_bundle(storage, args.job, work_dir), what="bundle download"
+        )
+        staged = SETUP_RETRY.call(
+            lambda: stage_data(storage, bundle, work_dir), what="data staging"
+        )
         if args.install_requirements and bundle.requirements:
             from gpurelay.runtime.requirements import install_requirements
 
             install_requirements(work_dir / bundle.requirements)
         env = env_fingerprint() | {"backend": args.backend}
-        storage.put_bytes(
-            json.dumps(env, indent=2).encode(), segment_env_key(args.job, args.segment)
+        SETUP_RETRY.call(
+            lambda: storage.put_bytes(
+                json.dumps(env, indent=2).encode(), segment_env_key(args.job, args.segment)
+            ),
+            what="environment upload",
         )
-        loaded = load_latest_checkpoint(storage, args.job, runtime_dir / "restore")
+        loaded = load_latest_checkpoint(
+            storage, args.job, runtime_dir / "restore", retry=SETUP_RETRY
+        )
+        worker_region = SETUP_RETRY.call(
+            lambda: read_assignment(storage, args.job, args.segment), what="worker assignment"
+        )
+        if worker_region is not None:
+            region = ParallelRegion(storage, args.job, worker_region, args.segment, 0)
+            info = SETUP_RETRY.call(region.read_info, what="region info")
     except Exception as exc:
         log.error("session setup failed: %r", exc)
         return int(ExitCode.INFRA_ERROR)
 
-    worker_region = read_assignment(storage, args.job, args.segment)
     if worker_region is not None:
         # A parallel-chunks worker starts only from a checkpoint inside its region.
-        info = ParallelRegion(storage, args.job, worker_region, args.segment, 0).read_info()
         position = loaded.positions.get("position") if loaded is not None else None
         if info is None or loaded is None or not inside_region(position, info):
             log.info("worker %s: region %s is not active; nothing to do", args.segment,
@@ -116,7 +134,10 @@ def main(argv: list[str] | None = None) -> int:
             return int(ExitCode.COMPLETED)
     elif loaded is not None and loaded.runtime.get("final"):
         log.info("job %s already completed (checkpoint %d)", args.job, loaded.seq)
-        _write_completed_status(storage, args.job, args.segment)
+        SETUP_RETRY.call(
+            lambda: _write_completed_status(storage, args.job, args.segment),
+            what="completed status",
+        )
         return int(ExitCode.COMPLETED)
 
     session = RelaySession(

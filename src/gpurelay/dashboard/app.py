@@ -13,8 +13,8 @@ from datetime import datetime, timezone
 from importlib import resources
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from gpurelay.controller.estimator import fit_message
 from gpurelay.controller.lock import controller_running
@@ -79,8 +79,32 @@ def _segment_json(seg: Segment, now: float) -> dict[str, Any]:
     }
 
 
-def create_app(ctx: Context, *, clock: Callable[[], float] = time.time) -> FastAPI:
+LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
+
+
+def _host_name(header: str) -> str:
+    """``Host`` header without the port (IPv6 literals keep their brackets)."""
+    if header.startswith("["):
+        return header.split("]", 1)[0] + "]"
+    return header.rsplit(":", 1)[0] if header.count(":") == 1 else header
+
+
+def create_app(
+    ctx: Context,
+    *,
+    clock: Callable[[], float] = time.time,
+    allowed_hosts: frozenset[str] = LOCAL_HOSTS,
+) -> FastAPI:
+    """``allowed_hosts``: accepted ``Host`` names. Anything else is refused, which stops DNS
+    rebinding (a website pointing its own domain at 127.0.0.1 to reach this API)."""
     app = FastAPI(title="GPU Relay", docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.middleware("http")
+    async def check_host(request: Request, call_next: Any) -> Any:
+        if _host_name(request.headers.get("host", "")) not in allowed_hosts:
+            return JSONResponse({"detail": "unexpected Host header"}, status_code=421)
+        return await call_next(request)
+
     controller = ctx.controller
 
     def find(job_id: str) -> Job:

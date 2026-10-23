@@ -77,3 +77,26 @@ def test_state_moves_between_homes(tmp_path: Path) -> None:
     assert runner.invoke(app, ["import-state", str(archive), "--force"], env=vm).exit_code == 0
     status = runner.invoke(app, ["status"], env=vm)
     assert status.exit_code == 0 and job_id in status.output
+
+
+def test_bad_inputs_get_clean_errors(tmp_path: Path) -> None:
+    env = {"GPURELAY_HOME": str(tmp_path / "home"), "HF_TOKEN": ""}
+    assert runner.invoke(app, ["init", "--local"], env=env).exit_code == 0
+    notes = tmp_path / "notes.txt"
+    notes.write_text("hello\n")
+    broken = tmp_path / "broken.py"
+    broken.write_text("def f(:\n")
+    garbage = tmp_path / "state.tgz"
+    garbage.write_text("not an archive")
+    cases = [
+        (["submit", str(notes)], "submit a Python script"),
+        (["submit", str(broken)], "syntax error"),
+        (["import-state", str(garbage), "--force"], "not a GPU Relay state archive"),
+        (["import-state", str(tmp_path / "missing.tgz")], "does not exist"),
+        (["status", "job-nope"], "no job matches"),
+    ]
+    for args, message in cases:
+        result = runner.invoke(app, args, env=env)
+        assert result.exit_code != 0, args
+        assert message in " ".join(result.output.split()), (args, result.output)
+        assert not isinstance(result.exception, AssertionError | TypeError | AttributeError)

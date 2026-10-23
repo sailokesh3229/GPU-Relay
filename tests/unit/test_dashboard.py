@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from test_controller import Harness, _harness
 
 from gpurelay.controller.service import Context
-from gpurelay.dashboard.app import ACTION_HEADER, create_app
+from gpurelay.dashboard.app import ACTION_HEADER, LOCAL_HOSTS, create_app
 from gpurelay.models import JobState
 from gpurelay.storage.layout import final_prefix
 
@@ -22,7 +22,7 @@ ACT = {ACTION_HEADER: "1"}
 
 def _client(tmp_path: Path, h: Harness) -> TestClient:
     ctx = Context(h.controller.config, tmp_path / "home", h.db, h.storage, h.controller)
-    return TestClient(create_app(ctx, clock=h.clock))
+    return TestClient(create_app(ctx, clock=h.clock, allowed_hosts=LOCAL_HOSTS | {"testserver"}))
 
 
 def test_page_is_self_contained(tmp_path: Path) -> None:
@@ -102,3 +102,13 @@ def test_colab_notebook_download_needs_the_colab_backend(tmp_path: Path) -> None
     response = _client(tmp_path, h).get(f"/api/jobs/{job.id}/colab-notebook")
     assert response.status_code == 409 and "Colab backend is off" in response.json()["detail"]
     assert _client(tmp_path, h).get("/api/jobs/job-nope/colab-notebook").status_code == 404
+
+
+def test_dns_rebinding_is_refused(tmp_path: Path) -> None:
+    h = _harness(tmp_path, {"a": (None, True, 1, "T4")})
+    ctx = Context(h.controller.config, tmp_path / "home", h.db, h.storage, h.controller)
+    client = TestClient(create_app(ctx, clock=h.clock))  # default: local names only
+    assert client.get("/api/overview", headers={"host": "evil.example:8765"}).status_code == 421
+    assert client.get("/", headers={"host": "attacker.test"}).status_code == 421
+    for host in ("127.0.0.1:8765", "localhost:8765", "[::1]:8765", "localhost"):
+        assert client.get("/api/overview", headers={"host": host}).status_code == 200, host

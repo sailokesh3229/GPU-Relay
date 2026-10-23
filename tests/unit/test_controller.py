@@ -363,7 +363,9 @@ def test_status_snapshot(tmp_path: Path) -> None:
         progress=Progress(loop={"L61-abcdef": (400, 1000)}), rate=Rate(unit="iter", per_hour=200),
     )  # fmt: skip
     h.storage.put_bytes(status.model_dump_json().encode(), status_key(job.id))
-    console = Console(record=True, width=160, color_system=None)
+    console = Console(
+        record=True, width=160, color_system=None, legacy_windows=False, safe_box=False
+    )
     render_status(console, h.controller, h.clock.now)
     text = console.export_text()
     assert "400/1000" in text and "~3.00h (progress)" in text  # ETA = 600 iters / 200 per h

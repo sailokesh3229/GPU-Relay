@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import builtins
 import collections
+import contextlib
 import itertools
 import json
 import logging
@@ -27,7 +28,7 @@ import random
 import sys
 import time
 import types
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, MutableSequence, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -53,7 +54,9 @@ from gpurelay.runtime.persist import PersistResult
 from gpurelay.runtime.rng import capture_rng, chunk_seed, load_rng, restore_rng, seed_all
 from gpurelay.runtime.state import (
     RestoreReport,
+    is_stateful_closure,
     is_torch_stateful,
+    is_user_object,
     restore_state,
     skip_reason,
 )
@@ -115,6 +118,17 @@ def apply_in_place(live: Any, new: Any) -> Any:
         return new
     if type(live) is type(new) and is_rng_object(live):
         _copy_rng_state(live, new)  # e.g. a DataLoader holds the live generator
+        return live
+    if (
+        is_stateful_closure(live)
+        and is_stateful_closure(new)
+        and live.__code__.co_code == new.__code__.co_code
+        and len(live.__closure__) == len(new.__closure__)
+    ):
+        # Refill the live cells: functions sharing them (same factory call) stay in sync.
+        for live_cell, new_cell in zip(live.__closure__, new.__closure__, strict=True):
+            with contextlib.suppress(ValueError):  # an empty cell
+                live_cell.cell_contents = new_cell.cell_contents
         return live
     if isinstance(live, list) and isinstance(new, list):
         live[:] = new
@@ -291,9 +305,11 @@ class RelaySession:
         self.script: ScriptState | None = None
         self.registry: dict[str, Any] = {}
         self._pending: dict[str, Any] = {}
-        self._last_bucket: str | None = None
+        # Restored on resume: a resume past a chunks loop skips the loop statement, and
+        # relay.load_results() after it still needs to know which bucket it filled.
+        self._last_bucket: str | None = meta.get("last_bucket")
         self._chunk_buckets: list[str] = []
-        self._named_buckets: dict[str, str] = {}
+        self._named_buckets: dict[str, str] = dict(meta.get("named_buckets", {}))
         self._frameworks: list[FrameworkPlan] = []
         self._warned_unpicklable: set[str] = set()
         # Extension points (notebook executor): extra checkpoint metadata + blobs, and
@@ -534,7 +550,18 @@ class RelaySession:
 
     def _auto_loop(self, loop_id: str, iterable: Any) -> Any:
         total = _safe_len(iterable)
-        if total is not None and _indexable(iterable):
+        if isinstance(iterable, MutableSequence):
+            # Python iterates a list by index while index < len(list): it may grow or shrink
+            # during the loop, so the length is read at every step (and unknown up front).
+            total = None
+
+            def items_from(start: int) -> Iterator[tuple[int, Any]]:
+                index = start
+                while index < len(iterable):
+                    yield index, iterable[index]
+                    index += 1
+
+        elif total is not None and _indexable(iterable):
 
             def items_from(start: int) -> Iterator[tuple[int, Any]]:
                 return ((i, iterable[i]) for i in range(start, total))
@@ -564,12 +591,12 @@ class RelaySession:
             if sampled:
                 return self._forget_iter_rng(key, run_loop(
                     self.tracker, total, loop_id, items_from, self._on_iteration_end,
-                    loop_id=loop_id, adaptive=self.tracker.nested,
+                    loop_id=loop_id, adaptive=True,
                 ))  # fmt: skip
 
         return run_loop(
             self.tracker, total, loop_id, items_from, self._on_iteration_end, loop_id=loop_id,
-            adaptive=self.tracker.nested,
+            adaptive=True,
         )  # fmt: skip
 
     def _forget_iter_rng(self, key: str, loop: Iterator[Any]) -> Iterator[Any]:
@@ -893,10 +920,15 @@ class RelaySession:
             p_eff = current + 1 if completed else current
         names = set(plan.global_names)
         arg_names: set[str] = set()
+        receivers: set[str] = set()
         for stmt in plan.statements[p_eff : current + 1]:
             if not stmt.is_definition:
                 names |= stmt.assigned
                 arg_names |= stmt.call_args
+                receivers |= stmt.receivers
+        for name in receivers - names:  # tracker.record(x): user objects change via methods
+            if name in ns and is_user_object(ns[name]):
+                selected[name] = ns[name]
         for name in names:
             if name in ns:
                 selected[name] = ns[name]
@@ -907,7 +939,7 @@ class RelaySession:
             if (
                 name not in selected
                 and skip_reason(name, value) is None
-                and (is_torch_stateful(value) or is_rng_object(value))
+                and (is_torch_stateful(value) or is_rng_object(value) or is_stateful_closure(value))
             ):
                 selected[name] = value
         for key, (frame, local_names) in self._frames.items():
@@ -915,7 +947,11 @@ class RelaySession:
             wanted = set(local_names)
             for name, value in local_ns.items():
                 if skip_reason(name, value) is None and (
-                    name in wanted or is_torch_stateful(value) or is_rng_object(value)
+                    name in wanted
+                    or is_torch_stateful(value)
+                    or is_rng_object(value)
+                    or is_stateful_closure(value)
+                    or is_user_object(value)
                 ):
                     selected[f"{LOCAL_PREFIX}{key}|{name}"] = value
         last_skipped = current if completed else current - 1
@@ -969,6 +1005,8 @@ class RelaySession:
                 "chain": chain,
                 "files": self.files_manifest,
                 "results": self.results_index,
+                "last_bucket": self._last_bucket,
+                "named_buckets": self._named_buckets,
                 "prefix_end": self.prefix_end,
                 "snapshot_prefix": p_eff,
                 "durations": {str(k): v for k, v in sorted(self.durations.items())},

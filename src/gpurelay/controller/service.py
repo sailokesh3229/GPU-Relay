@@ -15,6 +15,7 @@ from gpurelay.controller.db import StateDB
 from gpurelay.controller.registry import build_backends
 from gpurelay.errors import ConfigError, GpuRelayError
 from gpurelay.models import DataSpec, Job, JobKind, JobState, SegmentState
+from gpurelay.pathutil import safe_join
 from gpurelay.runtime.checkpoint import load_latest_checkpoint, read_latest_meta
 from gpurelay.storage.base import Storage
 from gpurelay.storage.layout import final_prefix, latest_key, segment_log_key
@@ -200,7 +201,7 @@ def fetch_outputs(ctx: Context, job: Job, dest: Path) -> list[Path]:
     prefix = final_prefix(job.id) + "/"
     written = []
     for key in ctx.storage.list(prefix):
-        target = dest / key[len(prefix) :]
+        target = safe_join(dest, key[len(prefix) :])
         ctx.storage.get_file(key, target)
         written.append(target)
     if not written:

@@ -655,3 +655,87 @@ own and the controller picked it up on wake.
 **Verification:** 347 unit tests; every integration file passes (run one file at a time).
 `test_keras_unmodified_handoffs` is timing-sensitive under heavy load (failed once in a batch
 run, passed 3/3 alone).
+
+## Hardening campaign (2026-10-23)
+
+Goal: find loopholes with new kinds of tests, then fix every bug they found. Each fix has a
+regression test that fails without it.
+
+**New test kinds**
+
+- *Adversarial scripts* (`tests/integration/test_adversarial.py`): nine unmodified scripts
+  written to break resume. They cover:
+  - lists that grow while being iterated;
+  - state kept in closures;
+  - objects mutated only through their own methods;
+  - unusual control flow;
+  - iterator kinds;
+  - globals and attributes;
+  - working files;
+  - very tight loops;
+  - early exit.
+
+  Each runs under random hard kills and must match a plain run.
+- *Property tests* (Hypothesis, `tests/unit/test_properties.py`):
+  - the loop tracker resumes correctly from every safe point of random loop nests;
+  - LocalFS and Google Drive storage behave like a dict model;
+  - key validation;
+  - state snapshot round trip;
+  - duration parsing;
+  - storage layout.
+- *Fault injection* (`tests/integration/test_faults.py` with
+  `faulty_site/sitecustomize.py`):
+  - every storage call inside the sessions fails transiently at random while sessions are
+    also killed;
+  - separately, the latest checkpoint is corrupted between sessions, and the next session
+    must fall back to the previous one.
+
+  Both jobs must still finish identically.
+- *Path-safety tests* (`tests/unit/test_safe_paths.py`): `..`, absolute paths, drive letters
+  and backslashes in bundle, file-manifest and output names are all rejected.
+- *Stress* (`tests/integration/test_stress.py`):
+  - twelve jobs of four kinds on three Simulated backends, one of which kills at random;
+  - the controller is restarted twice;
+  - every job must finish with outputs equal to an uninterrupted run, and no job may ever
+    have two live main segments.
+- *Linux run* (WSL, Python 3.12): the full suite also runs on the Linux code path
+  (`PyFrame_LocalsToFast`), the same one Kaggle and Colab use.
+
+**Bugs found and fixed**
+
+| Found by | Bug | Fix |
+|---|---|---|
+| adversarial | A `for` over a list that grows inside the loop stopped at the original length after a resume | Mutable sequences are iterated by index, re-reading the length |
+| adversarial | State held in a closure (counter in a nested function) restarted after a resume | Stateful `__main__` closures are snapshotted and their cells refilled in place |
+| adversarial | Objects changed only by method calls (`stats.record(x)`) were not snapshotted | Method receivers that are user objects are snapshotted; more mutating method names are recognised |
+| adversarial | Very tight loops slowed down a lot from per-iteration tracking | After a probe, fast loops offer a safe point only every *stride* iterations (about every 50 ms) |
+| Hypothesis | Storage prefix ending in a partial `.` or `..` component was rejected | Only full path components are checked |
+| Hypothesis | LocalFS `delete` on a directory raised an error | It is a no-op, as on the Hub |
+| Linux run | Notebooks without matplotlib installed failed: figure capture imported it unconditionally | Figure capture only uses matplotlib if the job already imported it |
+| path tests | A crafted bundle or manifest could write outside the work or output directory (`../x`) | `safe_join` rejects such paths everywhere files are written |
+| review | The Kaggle bootstrap pasted ids into source as raw strings | Values are inserted with `repr()` |
+| review | The dashboard accepted any `Host` header (DNS rebinding) | Requests with a non-local `Host` get 421; the bind host is allowed explicitly |
+| review | `gpurelay up` would use a public Hub repo | `up` refuses a public store, and a missing repo gets a clear error |
+| review | Wrong file types, syntax errors, corrupt or missing archives, and a missing `--gdrive` file gave raw tracebacks | Each one gives a one-line error |
+| stress | `relay.load_results()` failed with "no relay.chunks() loop has run yet" when a resume skipped the (long) chunks loop statement | The last and named result buckets are kept in checkpoint metadata. Regression: `test_load_results_after_a_resume_past_the_chunks_loop` (plain and parallel) |
+| fault injection | One transient storage error while a session started (bundle download, checkpoint pointer read, worker assignment) ended the session as an infrastructure failure; a few in a row failed the job | Every setup step is retried with backoff. Regression: `tests/unit/test_entry_setup.py` (every storage call fails once) |
+
+**Test tuning:** timing-sensitive tests now use deadline handoffs or larger windows so they
+pass on both a loaded Windows laptop and Linux. Each one still fails without the feature it
+tests. The Keras test now runs 24 epochs (was 16): with a warm start the job fit in one 16 s
+session and never handed off.
+
+**Note:** on Windows, paths longer than 260 characters break checkpoint persists. Normal
+session paths are about 130 characters; only very deep custom work directories hit this. It
+cannot happen on Kaggle or Colab (Linux).
+
+**Verification (2026-10-23):**
+- Windows:
+  - 378 unit tests pass;
+  - all 13 integration files pass (55 tests), one file at a time;
+  - the stress test passed 4/4 in a row after the chunks fix (it failed about 1 run in 3
+    before);
+  - the fault tests passed 5/5 after the setup-retry fix.
+- Linux (WSL, Python 3.12): 374 unit tests pass (3 torch tests skipped there). The Linux
+  integration rerun was stopped because the laptop ran low on memory. Every integration
+  file had passed on Linux earlier in the campaign, before the last two fixes.

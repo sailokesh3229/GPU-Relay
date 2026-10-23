@@ -445,9 +445,11 @@ def load_latest_checkpoint(
     """
     retry = retry or RetryPolicy()
     candidates = retry.call(lambda: _candidates(storage, job_id), what="read checkpoints")
-    if not candidates and storage.exists(latest_key(job_id)):
+    if not candidates and retry.call(
+        lambda: storage.exists(latest_key(job_id)), what="read LATEST.json"
+    ):
         raise CheckpointCorruptError(f"{job_id}: LATEST.json is unreadable and no fallback")
-    latest_seq = read_pointer(storage, job_id)
+    latest_seq = retry.call(lambda: read_pointer(storage, job_id), what="read LATEST.json")
     problems: list[str] = []
     for pointer in candidates:
         dest = Path(dest_root) / ckpt_dirname(pointer.seq)

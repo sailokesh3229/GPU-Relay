@@ -44,7 +44,7 @@ RUNTIME = RuntimeSettings(
     min_interval_s=0.2, max_lost_work_s=0.6, safety_margin_s=0.3, heartbeat_s=1,
     replay_threshold_s=0.5,
 )  # fmt: skip
-ENV = {"CORPUS_ITEMS": "400", "CORPUS_CHUNK_SLEEP": "0.1"}
+ENV = {"CORPUS_ITEMS": "800", "CORPUS_CHUNK_SLEEP": "0.1"}  # longer than one 3 s session
 SCRIPT = "chunked_eval.py"
 SECRET = "hf_test_token"
 

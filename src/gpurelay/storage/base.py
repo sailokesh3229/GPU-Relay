@@ -121,9 +121,7 @@ def validate_prefix(prefix: str) -> str:
     for part in parts[:-1]:
         if part in ("", ".", ".."):
             raise InvalidRemotePathError(f"invalid path component in prefix: {prefix!r}")
-    if parts[-1] in (".", ".."):
-        raise InvalidRemotePathError(f"invalid path component in prefix: {prefix!r}")
-    return prefix
+    return prefix  # the partial last part is only string-matched, never used as a path
 
 
 def _check_chars(value: str) -> None:
