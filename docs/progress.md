@@ -736,6 +736,8 @@ cannot happen on Kaggle or Colab (Linux).
   - the stress test passed 4/4 in a row after the chunks fix (it failed about 1 run in 3
     before);
   - the fault tests passed 5/5 after the setup-retry fix.
-- Linux (WSL, Python 3.12): 374 unit tests pass (3 torch tests skipped there). The Linux
-  integration rerun was stopped because the laptop ran low on memory. Every integration
-  file had passed on Linux earlier in the campaign, before the last two fixes.
+- Linux (WSL, Python 3.12), with every fix in place:
+  - 374 unit tests pass;
+  - all 13 integration files pass (39 passed);
+  - 3 unit and 13 integration tests are skipped because torch, Keras, HF and Lightning
+    are not installed there (they pass on Windows).
