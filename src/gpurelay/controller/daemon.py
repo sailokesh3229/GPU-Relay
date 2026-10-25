@@ -477,6 +477,8 @@ class Controller:
                     max_session_s=slot.max_session_s,
                     gpu_label=slot.gpu_label,
                     next_reset=quota.next_reset,
+                    budget_model=slot.budget.model.value,
+                    speed=slot.speed,
                 )
             )
         return views

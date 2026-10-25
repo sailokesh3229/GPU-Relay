@@ -3,8 +3,15 @@
 1. Runnable jobs are ordered by priority (high first), then submission time.
 2. A job goes to a backend that is ready, has remaining budget >= ``min_segment_h`` (or no
    budget limit), and has a free concurrency slot. Automated backends are preferred; among
-   them the job's ``prefer_backend``, then the most remaining budget; when budgets tie, the
-   GPU model of the job's previous segments (less numeric drift).
+   them (plan P11):
+
+   a. the job's ``prefer_backend``;
+   b. budgets that expire (monthly, daily) while they still have hours, as long as their GPU
+      is at least half as fast as the fastest candidate: unused credits are lost at reset,
+      and among them the one resetting first;
+   c. the fastest GPU (relative speed, T4 = 1.0): the job finishes soonest;
+   d. the most remaining budget; when budgets tie, the GPU model of the job's previous
+      segments (less numeric drift).
 3. If only manual backends (Colab) can take it, the job waits for the user (``awaiting_user``).
 4. If no backend has budget, the job waits for the earliest reset (``waiting_for_quota``).
 5. Different jobs run in parallel on different backends (or up to ``max_concurrent`` on one);
@@ -18,6 +25,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 BUDGET_TIE_H = 0.5
+EXPIRING_MIN_SPEED = 0.5  # expiring credits first, unless their GPU is under half as fast
+SAME_SPEED = 0.95  # speeds within 5% count as equal
+EXPIRING_MODELS = ("monthly", "daily")
 
 
 @dataclass
@@ -32,6 +42,17 @@ class BackendView:
     max_session_s: float
     gpu_label: str | None = None
     next_reset: datetime | None = None
+    budget_model: str | None = None  # BudgetModel value
+    speed: float = 1.0  # relative GPU speed, T4 = 1.0
+
+    @property
+    def expiring(self) -> bool:
+        """Hours that are lost if unused at the next reset (monthly / daily budgets)."""
+        return (
+            self.budget_model in EXPIRING_MODELS
+            and not self.unlimited
+            and (self.remaining_h or 0.0) > 0
+        )
 
     def has_budget(self, min_segment_h: float) -> bool:
         if self.unlimited or self.remaining_h is None:
@@ -66,11 +87,22 @@ def _remaining(backend: BackendView) -> float:
 
 
 def choose(candidates: list[BackendView], job: JobView) -> BackendView:
-    """Preferred backend; else most remaining budget, ties (within 0.5 h) broken by the
-    GPU model of the job's last segment, then by name for determinism."""
+    """See the module docstring, rule 2: preferred backend; expiring credits on a GPU that
+    is not much slower; the fastest GPU; the most remaining budget (ties within 0.5 h broken
+    by the GPU model of the job's last segment, then by name for determinism)."""
     for backend in candidates:
         if backend.name == job.prefer_backend:
             return backend
+    fastest = max(b.speed for b in candidates)
+    expiring = [b for b in candidates if b.expiring and b.speed >= EXPIRING_MIN_SPEED * fastest]
+    if expiring:
+        soonest = min(b.next_reset.timestamp() if b.next_reset else math.inf for b in expiring)
+        candidates = [
+            b for b in expiring
+            if (b.next_reset.timestamp() if b.next_reset else math.inf) <= soonest + 3600
+        ]  # fmt: skip
+    top = max(b.speed for b in candidates)
+    candidates = [b for b in candidates if b.speed >= SAME_SPEED * top]
     best = max(_remaining(b) for b in candidates)
     tied = [b for b in candidates if _remaining(b) >= best - BUDGET_TIE_H]
     last_gpu = job.previous_gpus[-1] if job.previous_gpus else None

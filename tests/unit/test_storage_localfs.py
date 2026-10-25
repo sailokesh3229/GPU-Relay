@@ -150,3 +150,18 @@ def test_reader_never_sees_partial_file(store: LocalFSStorage) -> None:
     assert not bad_reads, f"partial reads observed (lengths): {bad_reads[:5]}"
     assert reads > 0
     assert store.list("") == ["status.json"]
+
+
+def test_deleting_a_key_removes_folders_it_leaves_empty(tmp_path: Path) -> None:
+    """Found by the property test: put "0/0/0", delete it, put "0" failed on Windows
+    (an empty folder "0" was left where the new key's file had to go)."""
+    store = LocalFSStorage(tmp_path / "store")
+    store.put_bytes(b"x", "0/0/0")
+    store.put_bytes(b"keep", "0/1")
+    store.delete("0/0/0")
+    assert not (tmp_path / "store" / "0" / "0").exists()  # emptied: removed
+    assert store.get_bytes("0/1") == b"keep"  # "0" still holds a key: kept
+    store.delete("0/1")
+    store.put_bytes(b"now a file", "0")
+    assert store.get_bytes("0") == b"now a file"
+    assert (tmp_path / "store").is_dir()  # the root itself is never removed

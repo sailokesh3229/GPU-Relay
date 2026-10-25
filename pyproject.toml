@@ -38,8 +38,15 @@ hf = ["transformers>=4.38", "accelerate>=0.27"]
 lightning = ["lightning>=2.1"]
 kaggle = ["kaggle>=2.0"]
 dashboard = ["fastapi>=0.110", "uvicorn>=0.29"]
+# The desktop app: native window, tray icon, notifications (plus the dashboard).
+desktop = [
+    "fastapi>=0.110", "uvicorn>=0.29", "kaggle>=2.0",
+    "pywebview>=5", "pystray>=0.19", "pillow>=10",
+]
 # Lightning AI backend (the official SDK; PyTorch Lightning is the "lightning" extra).
 lightning-ai = ["lightning-sdk>=2026.7"]
+# Modal backend (the official SDK).
+modal = ["modal>=1.0"]
 gdrive = ["google-api-python-client>=2.100", "google-auth>=2.20", "google-auth-oauthlib>=1.0"]
 dev = [
     "pytest>=8.0",
@@ -53,6 +60,9 @@ dev = [
 
 [project.scripts]
 gpurelay = "gpurelay.cli:app"
+
+[project.gui-scripts]
+gpurelay-desktop = "gpurelay.desktop.app:main"
 
 [tool.hatch.version]
 path = "src/gpurelay/__init__.py"
@@ -101,6 +111,10 @@ module = [
     "nbformat.*",
     "keyring.*",
     "plyer.*",
+    "pystray.*",
+    "modal.*",
+    "webview.*",
+    "PIL.*",
 ]
 ignore_missing_imports = true
 

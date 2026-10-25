@@ -42,6 +42,7 @@ ENV_BACKUP_S = "GPURELAY_BACKUP_S"
 ENV_TAKEOVER = "GPURELAY_TAKEOVER"
 BACKUP_S = 600.0
 RESTART_DELAYS_S = (10.0, 30.0, 60.0, 120.0, 300.0)
+STOP_FILENAME = "controller.stop"  # in the home: asks `gpurelay up` to stop gracefully
 
 
 def restore_state(storage: Storage, home: Path) -> bool:
@@ -147,8 +148,49 @@ def prepare_home(home: Path, storage_factory: Callable[[str], Storage]) -> Stora
     return storage
 
 
+def watch_stop_file(home: Path, poll_s: float = 0.5) -> threading.Thread:
+    """End this process's main thread like Ctrl+C once ``home/controller.stop`` appears.
+
+    The graceful stop that works everywhere: a console-less child on Windows cannot receive
+    Ctrl+C or Ctrl+Break. `up` then releases its lease, so the next controller takes over at
+    once instead of waiting for the lease to go stale."""
+    stop = home / STOP_FILENAME
+    stop.unlink(missing_ok=True)  # a leftover request is not for this controller
+
+    def watch() -> None:
+        while True:
+            if stop.exists():
+                stop.unlink(missing_ok=True)
+                # A real SIGINT (not _thread.interrupt_main): on Windows only that also wakes
+                # the main thread from time.sleep at once.
+                signal.raise_signal(signal.SIGINT)
+                return
+            time.sleep(poll_s)
+
+    thread = threading.Thread(target=watch, name="gpurelay-stop-file", daemon=True)
+    thread.start()
+    return thread
+
+
+def spawn_controller(cmd: Sequence[str], log_path: Path | None = None) -> subprocess.Popen[bytes]:
+    """Start the controller child (on Windows without a console window). Output goes to
+    ``log_path`` when given, else to this process's output."""
+    kwargs: dict[str, object] = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    if log_path is not None:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        out = open(log_path, "ab")  # noqa: SIM115 - the child owns it from here
+        kwargs.update(stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+    child: subprocess.Popen[bytes] = subprocess.Popen(list(cmd), **kwargs)  # type: ignore[call-overload]
+    return child
+
+
 class Supervisor:
-    """Keeps one controller child process running and backs up the job database."""
+    """Keeps one controller child process running and backs up the job database.
+
+    :meth:`halt` and :meth:`resume` stop and start the controller on request (the desktop
+    app's Stop/Start buttons); :meth:`stop` ends supervision for good."""
 
     def __init__(
         self,
@@ -158,13 +200,16 @@ class Supervisor:
         backup_s: float = BACKUP_S,
         spawn: Callable[[Sequence[str]], subprocess.Popen[bytes]] | None = None,
         clock: Callable[[], float] = time.monotonic,
+        home: Path | None = None,
     ) -> None:
         self.command = list(command)
+        self.home = home  # where the stop file goes (graceful stop on every platform)
         self.backup = backup
         self.backup_s = backup_s
-        self.spawn = spawn or (lambda cmd: subprocess.Popen(cmd))  # output goes to the log
+        self.spawn = spawn or spawn_controller
         self.clock = clock
         self.child: subprocess.Popen[bytes] | None = None
+        self.enabled = True  # False after halt(): no controller until resume()
         self.restarts = 0
         self._stop = threading.Event()
         self._lock = threading.Lock()  # step() and stop() never interleave
@@ -195,7 +240,7 @@ class Supervisor:
             log.warning("controller exited with code %s; restarting in %.0f s", code, delay)
             self._safe_backup()
             self._last_backup = now
-        if self.child is None and now >= self._next_start:
+        if self.child is None and self.enabled and now >= self._next_start:
             self.child = self.spawn(self.command)
             self._started = now
         if self.child is not None and self.restarts and now - self._started > 600:
@@ -209,26 +254,58 @@ class Supervisor:
             self.step()
             self._stop.wait(poll_s)
 
+    @property
+    def running(self) -> bool:
+        child = self.child
+        return child is not None and child.poll() is None
+
+    def halt(self, timeout_s: float = 15.0) -> None:
+        """Stop the controller and keep it stopped until :meth:`resume`."""
+        with self._lock:
+            self.enabled = False
+            child, self.child = self.child, None
+        self._end(child, timeout_s, self.home)
+
+    def resume(self) -> None:
+        """Start the controller again at the next step (no backoff)."""
+        with self._lock:
+            self.enabled = True
+            self.restarts = 0
+            self._next_start = 0.0
+
     def stop(self, timeout_s: float = 15.0) -> None:
         """Stop the controller (running GPU sessions continue) and save a last backup. Short
         enough for the host's shutdown grace period (Render: 30 s)."""
         with self._lock:
             self._stop.set()
             child, self.child = self.child, None
-        if child is not None and child.poll() is None:
-            if os.name == "posix":  # Ctrl+C: `up` releases its lease, so a restart takes over now
-                child.send_signal(signal.SIGINT)
-            else:
-                child.terminate()
-            try:
-                child.wait(timeout_s)
-            except subprocess.TimeoutExpired:
-                child.kill()
+        self._end(child, timeout_s, self.home)
         self._safe_backup()
+
+    @staticmethod
+    def _end(child: subprocess.Popen[bytes] | None, timeout_s: float, home: Path | None) -> None:
+        """Ask ``child`` to stop like Ctrl+C, so `up` releases its lease and the next
+        controller takes over at once; kill it if it does not stop in time."""
+        if child is None or child.poll() is not None:
+            return
+        if home is not None:
+            (home / STOP_FILENAME).write_text("stop\n", encoding="utf-8")
+        elif os.name == "posix":
+            child.send_signal(signal.SIGINT)
+        else:
+            child.terminate()
+        try:
+            child.wait(timeout_s)
+        except subprocess.TimeoutExpired:
+            child.kill()
 
 
 def controller_command(takeover: bool) -> list[str]:
-    cmd = [sys.executable, "-m", "gpurelay", "up"]
+    """``gpurelay up`` with this interpreter (or this executable, in the packaged app)."""
+    if getattr(sys, "frozen", False):  # PyInstaller build: the executable runs CLI commands
+        cmd = [sys.executable, "up"]
+    else:
+        cmd = [sys.executable, "-m", "gpurelay", "up"]
     return [*cmd, "--takeover"] if takeover else cmd
 
 
@@ -247,6 +324,7 @@ def serve(host: str, port: int, home: Path) -> None:  # pragma: no cover - wires
         controller_command(os.environ.get(ENV_TAKEOVER) == "1"),
         StateBackup(storage, home),
         backup_s=float(os.environ.get(ENV_BACKUP_S) or BACKUP_S),
+        home=home,
     )
     thread = threading.Thread(target=supervisor.run, name="gpurelay-supervisor", daemon=True)
     thread.start()

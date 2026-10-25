@@ -73,7 +73,13 @@ def test_owner_can_act_viewer_can_only_read(setup: tuple[TestClient, Harness]) -
 
     r = _login(client, VIEWER_PW)
     assert r.status_code == 303 and r.headers["location"] == "/"
-    assert client.get("/api/me").json() == {"role": VIEWER, "login": True, "anonymous": False}
+    assert client.get("/api/me").json() == {
+        "role": VIEWER,
+        "login": True,
+        "anonymous": False,
+        "desktop": False,
+        "configured": True,
+    }
     assert client.get("/api/overview").status_code == 200
     assert client.get(f"/api/jobs/{job.id}").status_code == 200
     assert client.post(f"/api/jobs/{job.id}/pause", headers=ACT).status_code == 403
@@ -187,7 +193,13 @@ def test_public_view_lets_guests_look_but_never_act(tmp_path: Path) -> None:
     job = h.submit()
     page = client.get("/")
     assert page.status_code == 200 and "<title>GPU Relay</title>" in page.text
-    assert client.get("/api/me").json() == {"role": VIEWER, "login": True, "anonymous": True}
+    assert client.get("/api/me").json() == {
+        "role": VIEWER,
+        "login": True,
+        "anonymous": True,
+        "desktop": False,
+        "configured": True,
+    }
     assert client.get("/api/overview").status_code == 200
     assert client.get(f"/api/jobs/{job.id}").status_code == 200
     assert client.get("/api/settings").json()["public_view"] is True
@@ -197,7 +209,13 @@ def test_public_view_lets_guests_look_but_never_act(tmp_path: Path) -> None:
     assert client.get("/login").status_code == 200  # the owner can still log in
 
     _login(client, OWNER_PW)
-    assert client.get("/api/me").json() == {"role": OWNER, "login": True, "anonymous": False}
+    assert client.get("/api/me").json() == {
+        "role": OWNER,
+        "login": True,
+        "anonymous": False,
+        "desktop": False,
+        "configured": True,
+    }
     assert client.post(f"/api/jobs/{job.id}/pause", headers=ACT).status_code == 200
 
 

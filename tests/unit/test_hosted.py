@@ -208,3 +208,53 @@ def test_controller_command_runs_this_python() -> None:
 
     assert controller_command(False) == [sys.executable, "-m", "gpurelay", "up"]
     assert controller_command(True)[-1] == "--takeover"
+
+
+def test_supervisor_halts_with_a_stop_file_and_resumes(tmp_path: Path) -> None:
+    from gpurelay.hosted import STOP_FILENAME
+
+    rig = Rig()
+    rig.sup.home = tmp_path
+    rig.sup.step()
+    child = rig.children[0]
+    child.wait = lambda timeout=None: 0  # type: ignore[method-assign]  # exits when asked
+    rig.sup.halt(timeout_s=1)
+    assert (tmp_path / STOP_FILENAME).exists() and not child.terminated  # asked, not killed
+    rig.t += 1000
+    rig.sup.step()
+    assert len(rig.children) == 1 and not rig.sup.running  # halted: nothing restarts
+    rig.sup.resume()
+    rig.sup.step()
+    assert len(rig.children) == 2 and rig.sup.running
+
+
+def test_stop_file_ends_a_sleeping_process_like_ctrl_c(tmp_path: Path) -> None:
+    """Real process: `up` sleeps between ticks; the stop file must interrupt it at once."""
+    import subprocess
+    import sys
+    import time
+
+    from gpurelay.hosted import STOP_FILENAME
+
+    code = (
+        "import sys, time\n"
+        "from pathlib import Path\n"
+        "from gpurelay.hosted import watch_stop_file\n"
+        "watch_stop_file(Path(sys.argv[1]), poll_s=0.1)\n"
+        "try:\n"
+        "    time.sleep(60)\n"
+        "except KeyboardInterrupt:\n"
+        "    print('stopped gracefully'); sys.exit(0)\n"
+        "sys.exit(3)\n"
+    )
+    (tmp_path / STOP_FILENAME).write_text("old request")  # leftovers are ignored
+    proc = subprocess.Popen([sys.executable, "-c", code, str(tmp_path)],
+                            stdout=subprocess.PIPE, text=True)  # fmt: skip
+    time.sleep(1.5)
+    assert proc.poll() is None  # the leftover did not stop it
+    started = time.monotonic()
+    (tmp_path / STOP_FILENAME).write_text("stop")
+    out, _ = proc.communicate(timeout=20)
+    assert proc.returncode == 0 and "stopped gracefully" in out
+    assert time.monotonic() - started < 5
+    assert not (tmp_path / STOP_FILENAME).exists()

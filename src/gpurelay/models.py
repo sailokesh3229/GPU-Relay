@@ -110,6 +110,7 @@ class BudgetModel(str, Enum):
 
     WEEKLY_ROLLING = "weekly_rolling"
     MONTHLY = "monthly"
+    DAILY = "daily"  # resets at 00:00 UTC
     UNKNOWN_OPPORTUNISTIC = "unknown_opportunistic"
 
 

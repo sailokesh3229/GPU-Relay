@@ -130,6 +130,7 @@ def render_bootstrap(
     deadline_s: float,
     hard_limit_s: float,
     settings: RuntimeSettings,
+    backend: str = "lightning",
 ) -> str:
     template = string.Template(
         resources.files("gpurelay.templates")
@@ -137,6 +138,8 @@ def render_bootstrap(
         .read_text("utf-8")
     )
     return template.substitute(
+        backend=backend,
+        backend_py=repr(backend),
         job_id=job_id,
         segment_id=segment_id,
         repo_id_py=repr(repo_id),

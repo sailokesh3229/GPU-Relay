@@ -51,6 +51,9 @@ class QuotaForm(BaseModel):
 
     used: str | None = Field(default=None, max_length=20)
     remaining: str | None = Field(default=None, max_length=20)
+    # In the platform's own unit (dollars, credits) as its billing page shows them (P11).
+    used_amount: float | None = Field(default=None, ge=0, le=1e6)
+    remaining_amount: float | None = Field(default=None, ge=0, le=1e6)
 
 
 def parse_body(raw: bytes, model: type[BaseModel]) -> Any:

@@ -37,6 +37,7 @@ from gpurelay.controller.service import (
 )
 from gpurelay.controller.views import JobRow, backend_rows, budget_lines, job_rows
 from gpurelay.dashboard.auth import COOKIE_NAME, OWNER, VIEWER, Auth
+from gpurelay.dashboard.desktop_api import DesktopHooks, SetupDeps, add_launch_key, desktop_router
 from gpurelay.dashboard.forms import (
     FormError,
     QuotaForm,
@@ -143,12 +144,17 @@ def create_app(
     clock: Callable[[], float] = time.time,
     allowed_hosts: frozenset[str] | None = LOCAL_HOSTS,
     auth: Auth | None = None,
+    desktop: DesktopHooks | None = None,
+    launch_key: str | None = None,
+    setup_deps: SetupDeps | None = None,
 ) -> FastAPI:
     """``allowed_hosts``: accepted ``Host`` names. Anything else is refused, which stops DNS
     rebinding (a website pointing its own domain at 127.0.0.1 to reach this API). None accepts
     any host, for a server behind ``auth``.
 
     ``auth``: require a login; viewers may only read. Without it everyone is the owner."""
+    if desktop is not None and (auth is not None or launch_key is None):
+        raise ValueError("the desktop app runs locally with a launch key, never behind a login")
     if allowed_hosts is None and auth is None:
         raise ValueError("accepting any Host header needs a login (auth)")
     app = FastAPI(title="GPU Relay", docs_url=None, redoc_url=None, openapi_url=None)
@@ -232,6 +238,8 @@ def create_app(
             "role": request.state.role,
             "login": auth is not None,
             "anonymous": getattr(request.state, "anonymous", False),
+            "desktop": desktop is not None,
+            "configured": True,
         }
 
     controller = ctx.controller
@@ -271,6 +279,10 @@ def create_app(
                     "next_reset": _iso(b.next_reset),
                     "running": b.running,
                     "max_concurrent": b.max_concurrent,
+                    "model": b.model,
+                    "unit": b.unit,
+                    "cost_per_h": b.cost_per_h,
+                    "speed": b.speed,
                     "daily_h": daily_usage(ctx.db.ledger(b.name), now),
                 }
                 for b in backend_rows(controller, now)
@@ -430,6 +442,15 @@ def create_app(
             remaining = (
                 parse_duration(form.remaining, allow_zero=True) / 3600 if form.remaining else None
             )
+            slot = controller.backends.get(backend)
+            if form.used_amount is not None or form.remaining_amount is not None:
+                if slot is None:
+                    raise FormError(f"unknown backend {backend!r}")
+                cost = slot.budget.cost_per_h  # dollars or credits per GPU hour
+                if form.used_amount is not None:
+                    used = form.used_amount / cost
+                if form.remaining_amount is not None:
+                    remaining = form.remaining_amount / cost
             correct_quota(ctx, backend, remaining_h=remaining, used_h=used)
         except (FormError, ValueError, GpuRelayError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -462,6 +483,12 @@ def create_app(
                 },
                 {"name": "colab", "enabled": cfg.backends.colab_manual.enabled, "manual": True},
                 {"name": "lightning", "enabled": cfg.backends.lightning.enabled},
+                {
+                    "name": "modal",
+                    "enabled": cfg.backends.modal.enabled,
+                    "gpu": cfg.backends.modal.gpu,
+                    "monthly_usd": cfg.backends.modal.monthly_credit_usd,
+                },
                 {"name": "local", "enabled": cfg.backends.local.enabled},
             ],
             "configured": list(controller.backends),
@@ -487,4 +514,8 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"ok": True, "message": f"{action} requested for {target.id}"}
 
+    if desktop is not None:
+        app.include_router(desktop_router(desktop, setup_deps))
+    if launch_key is not None:
+        add_launch_key(app, launch_key)
     return app

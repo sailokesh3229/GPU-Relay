@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import importlib.metadata
+import sys
 import zipfile
 from pathlib import Path
 
@@ -28,10 +29,19 @@ def wheel_name(version: str | None = None) -> str:
     return f"gpurelay-{version or gpurelay.__version__}-py3-none-any.whl"
 
 
+def package_dir() -> Path:
+    """The ``gpurelay`` source tree. The packaged desktop app (PyInstaller) keeps only
+    compiled modules, so it ships the sources separately as ``gpurelay_src/gpurelay``."""
+    bundled = Path(getattr(sys, "_MEIPASS", "")) / "gpurelay_src" / "gpurelay"
+    if getattr(sys, "frozen", False) and bundled.is_dir():
+        return bundled
+    return Path(gpurelay.__file__).resolve().parent
+
+
 def build_runtime_wheel(dest_dir: Path) -> Path:
     """Write the runtime wheel into ``dest_dir`` and return its path."""
     version = gpurelay.__version__
-    package_dir = Path(gpurelay.__file__).resolve().parent
+    package_dir_ = package_dir()
     dist_info = f"gpurelay-{version}.dist-info"
     try:
         requires = importlib.metadata.requires("gpurelay") or []
@@ -53,10 +63,10 @@ def build_runtime_wheel(dest_dir: Path) -> Path:
     entry_points = "[console_scripts]\ngpurelay = gpurelay.cli:app\n"
 
     files: list[tuple[str, bytes]] = []
-    for path in sorted(package_dir.rglob("*")):
+    for path in sorted(package_dir_.rglob("*")):
         if path.is_dir() or _EXCLUDED_PARTS & set(path.parts) or path.suffix == ".pyc":
             continue
-        rel = path.relative_to(package_dir.parent).as_posix()
+        rel = path.relative_to(package_dir_.parent).as_posix()
         files.append((rel, path.read_bytes()))
     files += [
         (f"{dist_info}/METADATA", metadata.encode()),

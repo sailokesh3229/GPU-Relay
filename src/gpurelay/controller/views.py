@@ -51,6 +51,10 @@ class BackendRow:
     next_reset: datetime | None
     running: int
     max_concurrent: int
+    model: str = "weekly_rolling"
+    unit: str = "h"  # what the platform grants: hours, usd or credits (P11)
+    cost_per_h: float = 1.0
+    speed: float = 1.0
 
 
 def _fmt_time(value: datetime | None) -> str:
@@ -133,6 +137,10 @@ def backend_rows(controller: Controller, now: float) -> list[BackendRow]:
                 next_reset=quota.next_reset,
                 running=sum(1 for s in active if s.backend == slot.name),
                 max_concurrent=slot.max_concurrent,
+                model=slot.budget.model.value,
+                unit=slot.budget.unit,
+                cost_per_h=slot.budget.cost_per_h,
+                speed=slot.speed,
             )
         )
     return rows
@@ -145,6 +153,8 @@ def budget_lines(controller: Controller, now: float) -> list[BudgetLine]:
         weekly = slot.budget.hours
         if weekly is not None and slot.budget.model is BudgetModel.MONTHLY:
             weekly = weekly * 7 / 30
+        elif weekly is not None and slot.budget.model is BudgetModel.DAILY:
+            weekly = weekly * 7
         lines.append(
             BudgetLine(slot.name, quota.remaining_h, weekly, slot.automated, slot.budget.unlimited)
         )

@@ -4,12 +4,17 @@ Budget models:
 
 * ``weekly_rolling`` — at most ``budget_h`` GPU-hours in any 7-day window;
 * ``monthly`` — ``budget_h`` per calendar month (UTC), resetting on the 1st;
+* ``daily`` — ``budget_h`` per UTC day, resetting at midnight;
 * ``unknown_opportunistic`` — no known budget (e.g. Colab): remaining is unknown;
 * ``unlimited`` backends (local machine) have no budget at all.
 
 Usage records come from finished segments; running segments are counted live. A user
 correction (``gpurelay quota set``) pins remaining (or used) hours at a moment; usage after
 it is subtracted until the window that contained it has passed.
+
+Budgets can be given in another unit (plan P11): dollars (Modal) or credits (Lightning AI),
+with a price per GPU hour. The ledger always counts measured GPU hours; the unit only
+converts the allowance to hours and the remainder back for display.
 """
 
 from __future__ import annotations
@@ -23,6 +28,8 @@ from gpurelay.controller.db import LedgerEntry, StateDB
 from gpurelay.models import BudgetModel
 
 WEEK_S = 7 * 24 * 3600.0
+DAY_S = 24 * 3600.0
+UNITS = ("h", "usd", "credits")
 
 
 @dataclass(frozen=True)
@@ -33,6 +40,21 @@ class Budget:
     hours: float | None  # None: unknown (opportunistic) or unlimited
     unlimited: bool = False
     estimate: bool = True  # the configured value is a default / guess (shown as "est.")
+    unit: str = "h"  # "h", "usd" or "credits": what the platform grants
+    cost_per_h: float = 1.0  # units per GPU hour (1.0 for "h")
+
+    @classmethod
+    def from_amount(
+        cls, model: BudgetModel, amount: float, unit: str, cost_per_h: float, **kw: bool
+    ) -> Budget:
+        """A budget granted in ``unit`` (e.g. 30 usd a month at 0.59 usd per GPU hour)."""
+        if unit not in UNITS or cost_per_h <= 0:
+            raise ValueError(f"budget unit must be one of {UNITS} with a positive price")
+        return cls(model, amount / cost_per_h, unit=unit, cost_per_h=cost_per_h, **kw)
+
+    def amount(self, hours: float | None) -> float | None:
+        """``hours`` of GPU time in this budget's unit."""
+        return None if hours is None else hours * self.cost_per_h
 
 
 @dataclass(frozen=True)
@@ -62,6 +84,11 @@ def _overlap_h(start: float, end: float, lo: float, hi: float) -> float:
     return max(0.0, min(end, hi) - max(start, lo)) / 3600
 
 
+def _day_bounds(now: float) -> tuple[float, float]:
+    start = now - now % DAY_S
+    return start, start + DAY_S
+
+
 def _month_bounds(now: float) -> tuple[float, float]:
     dt = datetime.fromtimestamp(now, tz=timezone.utc)
     start = datetime(dt.year, dt.month, 1, tzinfo=timezone.utc)
@@ -79,6 +106,8 @@ class QuotaLedger:
     def window(model: BudgetModel, now: float) -> tuple[float, float]:
         if model is BudgetModel.MONTHLY:
             return _month_bounds(now)
+        if model is BudgetModel.DAILY:
+            return _day_bounds(now)
         return now - WEEK_S, now
 
     def state(
@@ -134,6 +163,8 @@ class QuotaLedger:
     ) -> datetime | None:
         if budget.model is BudgetModel.MONTHLY:
             return datetime.fromtimestamp(_month_bounds(now)[1], tz=timezone.utc)
+        if budget.model is BudgetModel.DAILY:
+            return datetime.fromtimestamp(_day_bounds(now)[1], tz=timezone.utc)
         # Rolling week: usage leaves the window 7 days after it happened. Find when enough
         # hours have expired to allow a minimum segment again.
         needed = max(min_segment_h, 1e-6) - remaining

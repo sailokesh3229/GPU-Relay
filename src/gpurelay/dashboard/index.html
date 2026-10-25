@@ -25,6 +25,7 @@
   --grey-bg:#242933;--grey:#6B7280;
 }}
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 body{margin:0;background:var(--bg);color:var(--ink);font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:var(--accent)}a:hover{color:var(--accent-dark)}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -130,6 +131,20 @@ form.opts{display:flex;flex-direction:column;gap:14px}
 .msg{font-size:13px;min-height:1.4em}
 .msg.err{color:var(--bad)}.msg.good{color:var(--good)}
 #act-msg:empty{display:none}
+ol.steps{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:0}
+ol.steps button{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--field);background:var(--card);color:var(--ink2);font-weight:500;font-size:13px;cursor:pointer}
+ol.steps button[aria-current]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+ol.steps .num{font-weight:700}
+.wiz{max-width:760px}
+.choice{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border:1px solid var(--field);border-radius:10px;cursor:pointer}
+.choice:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.choice input{margin-top:4px}
+.choice span{display:flex;flex-direction:column;gap:2px}
+.choice small{color:var(--muted);font-size:13px}
+.note{padding:12px 14px;border-radius:10px;background:var(--bg);border:1px solid var(--line);font-size:13px;display:flex;flex-direction:column;gap:4px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+ol.howto{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
 .empty{padding:36px 18px;text-align:center;color:var(--muted)}
 .back{display:inline-flex;align-items:center;gap:6px;font-weight:500;text-decoration:none}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -151,6 +166,7 @@ form.opts{display:flex;flex-direction:column;gap:14px}
     <div class="ctl" aria-live="polite">
       <strong><span class="dot" id="ctl-dot"></span><span id="ctl-text">Connecting…</span></strong>
       <span id="ctl-sub"></span>
+      <button id="ctl-toggle" class="btn small" type="button" hidden></button>
       <span id="who"></span>
       <form id="logout" method="post" action="logout" hidden><button class="btn small" type="submit">Log out</button></form>
       <a id="owner-login" class="btn small" href="login" hidden>Owner log in</a>
@@ -202,7 +218,7 @@ function when(iso) {
 }
 function backendLabel(name, gpu) {
   if (!name) return "–";
-  const nice = {kaggle: "Kaggle", colab_manual: "Colab", colab: "Colab", local: "This computer", lightning: "Lightning AI"}[name] || name;
+  const nice = {kaggle: "Kaggle", colab_manual: "Colab", colab: "Colab", local: "This computer", lightning: "Lightning AI", modal: "Modal"}[name] || name;
   return gpu ? `${nice} ${gpu.replace("NvidiaTesla", "").replace("Tesla ", "")}` : nice;
 }
 async function api(url, options) {
@@ -263,6 +279,29 @@ async function refreshShell() {
   document.getElementById("ctl-sub").textContent = on
     ? `${running} GPU session${running === 1 ? "" : "s"} running · updated ${new Date(overview.now).toLocaleTimeString()}`
     : "Jobs wait until it starts again.";
+  if (me.desktop) await refreshDesktop();
+}
+let desk = null;
+async function refreshDesktop() {
+  try { desk = await api("api/desktop/status"); } catch (e) { return; }
+  const c = desk.controller, btn = document.getElementById("ctl-toggle");
+  if (c.elsewhere) {
+    document.getElementById("ctl-dot").className = "dot on";
+    document.getElementById("ctl-text").textContent = "Controller runs elsewhere";
+    document.getElementById("ctl-sub").textContent = `${(c.lease_holder || "").split(":")[0]} holds the controller role for your storage. Jobs you submit here wait until this computer runs it.`;
+  } else if (!c.enabled) {
+    document.getElementById("ctl-sub").textContent = "Stopped by you. Jobs wait until you start it.";
+  }
+  btn.hidden = desk.mode !== "local" || !owner();
+  btn.disabled = false;
+  btn.textContent = c.enabled ? "Stop controller" : "Start controller";
+  btn.onclick = async () => {
+    btn.disabled = true;
+    btn.textContent = c.enabled ? "Stopping…" : "Starting…";
+    try { await post(`api/controller/${c.enabled ? "stop" : "start"}`); }
+    catch (e) { document.getElementById("ctl-sub").textContent = e.message; }
+    setTimeout(() => refreshShell().catch(() => {}), 1500);
+  };
 }
 function setNav(route) {
   for (const a of document.querySelectorAll(".links a")) {
@@ -308,14 +347,22 @@ function jobsView() {
       owner() ? el("a", {class: "btn primary", href: "#/submit"}, "+ Submit job") : null),
     viewOnlyNote(), banners, tabs, list, budgetCards());
 }
+const UNITS = {usd: ["$", ""], credits: ["", " credits"], h: ["", " h"]};
+function money(b, h) {
+  const [pre, post] = UNITS[b.unit] || UNITS.h;
+  const v = h * (b.cost_per_h || 1);
+  return b.unit === "h" ? hours(h) : `${pre}${v.toFixed(v < 100 ? 2 : 0)}${post}`;
+}
+function period(b) { return {monthly: "monthly", daily: "daily", weekly_rolling: "weekly"}[b.model] || "weekly"; }
 function budgetCards() {
   return el("section", {class: "cards3", "aria-label": "GPU budget"}, overview.backends.map((b) => {
     let big, bar = null, foot;
     if (b.budget_h) {
       const left = Math.max(0, b.remaining_h ?? 0);
-      big = el("span", {class: "big"}, `${hours(left)} `, el("span", {text: `of ${hours(b.budget_h)} left`}));
+      big = el("span", {class: "big"}, `${money(b, left)} `, el("span", {text: `of ${money(b, b.budget_h)} left`}));
       bar = el("span", {class: "bar"}, el("span", {style: `width:${Math.min(100, (100 * left) / b.budget_h)}%`}));
-      foot = b.next_reset ? `Next hours free up ${when(b.next_reset)}` : `${hours(b.used_h)} used`;
+      foot = b.unit !== "h" ? `≈ ${hours(left)} on ${backendLabel(b.name, b.gpu).split(" ").slice(1).join(" ") || "its GPU"}` + (b.next_reset ? ` · resets ${when(b.next_reset)}` : "")
+        : b.next_reset ? `Next hours free up ${when(b.next_reset)}` : `${hours(b.used_h)} used`;
     } else if (!b.automated) {
       big = el("span", {class: "big"}, "Available ", el("span", {text: "when you open it"}));
       foot = `${hours(b.used_h)} used this week`;
@@ -324,7 +371,7 @@ function budgetCards() {
       foot = "No fixed limit";
     }
     return el("a", {class: "bcard", href: "#/budget"},
-      el("span", {class: "top"}, el("span", {text: backendLabel(b.name, b.gpu)}), el("span", {text: b.budget_h ? "weekly" : b.automated ? "unlimited" : "manual"})),
+      el("span", {class: "top"}, el("span", {text: backendLabel(b.name, b.gpu)}), el("span", {text: b.budget_h ? period(b) : b.automated ? "unlimited" : "manual"})),
       big, bar, el("span", {class: "small muted", text: foot}));
   }));
 }
@@ -544,10 +591,12 @@ function budgetView() {
   const sections = overview.backends.map((b) => {
     const title = el("div", {style: "display:flex;flex-wrap:wrap;align-items:baseline;gap:12px"},
       el("h2", {style: "margin-right:auto", text: backendLabel(b.name, b.gpu)}),
-      el("span", {class: "small muted", text: b.budget_h ? `rolling 7-day window · ${hours(b.budget_h)}` : b.automated ? "no fixed limit" : "manual, no fixed quota"}));
+      el("span", {class: "small muted", text: !b.budget_h ? (b.automated ? "no fixed limit" : "manual, no fixed quota")
+        : b.model === "monthly" ? `${money(b, b.budget_h)} per month` : b.model === "daily" ? `${money(b, b.budget_h)} per day`
+        : `rolling 7-day window · ${hours(b.budget_h)}`}));
     const nums = el("div", {style: "display:flex;flex-wrap:wrap;gap:28px"},
       stat("Used", hours(b.used_h), "last 7 days"),
-      b.budget_h ? stat("Left", hours(Math.max(0, b.remaining_h ?? 0)), b.estimated ? "estimated" : "corrected by you") : null,
+      b.budget_h ? stat("Left", money(b, Math.max(0, b.remaining_h ?? 0)), (b.unit !== "h" ? `≈ ${hours(Math.max(0, b.remaining_h ?? 0))} · ` : "") + (b.estimated ? "estimated" : "corrected by you")) : null,
       b.next_reset ? stat("Next hours free up", when(b.next_reset), "") : null);
     const max = Math.max(0.1, ...b.daily_h);
     const dayNames = b.daily_h.map((_, i) => i === 6 ? "Today" : new Date(Date.now() - (6 - i) * 86400000).toLocaleDateString(undefined, {weekday: "short"}));
@@ -559,11 +608,15 @@ function budgetView() {
       onsubmit: async (ev) => {
         ev.preventDefault();
         const input = ev.currentTarget.querySelector("input"), msg = ev.currentTarget.querySelector(".msg");
-        try { await post(`api/quota/${encodeURIComponent(b.name)}`, {used: input.value.trim()}); msg.className = "msg good"; msg.textContent = "Saved."; input.value = ""; await refreshShell(); }
+        const value = input.value.trim().replace(/^\$/, "");
+        const body = b.unit === "h" ? {used: value} : {used_amount: Number(value)};
+        if (b.unit !== "h" && !(Number(value) >= 0)) { msg.className = "msg err"; msg.textContent = "Enter a number."; return; }
+        try { await post(`api/quota/${encodeURIComponent(b.name)}`, body); msg.className = "msg good"; msg.textContent = "Saved."; input.value = ""; await refreshShell(); }
         catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
       }},
       el("div", {class: "field", style: "flex:1 1 260px"}, el("label", {for: `fix-${b.name}`, text: `${backendLabel(b.name)}'s own page shows a different number?`}),
-        el("input", {id: `fix-${b.name}`, type: "text", placeholder: "Hours used, e.g. 12.5h", required: true})),
+        el("input", {id: `fix-${b.name}`, type: "text", required: true,
+          placeholder: b.unit === "usd" ? "Dollars used, e.g. 12.40" : b.unit === "credits" ? "Credits used, e.g. 4.5" : "Hours used, e.g. 12.5h"})),
       el("button", {type: "submit", class: "btn"}, "Correct"), el("span", {class: "msg", role: "status"})) : null;
     return el("section", {class: "card", "aria-label": backendLabel(b.name)}, title, nums, chart, correct);
   });
@@ -576,12 +629,13 @@ function budgetView() {
 async function settingsView() {
   const s = await api("api/settings");
   const yes = (v, a, b) => el("span", {class: v ? "ok" : "no", text: v ? a : b});
-  const names = {kaggle: "Kaggle", colab: "Colab (manual)", lightning: "Lightning AI", local: "This computer (CPU)"};
+  const names = {kaggle: "Kaggle", colab: "Colab (manual)", lightning: "Lightning AI", modal: "Modal", local: "This computer"};
   const rows = s.backends.map((b) => el("tr", {},
     el("td", {text: names[b.name] || b.name}),
     el("td", {}, b.enabled ? el("span", {class: "ok", text: "On"}) : el("span", {class: "muted", text: "Off"})),
     el("td", {text: b.name === "kaggle" ? [b.account, b.gpu && b.gpu.replace("NvidiaTesla", "Tesla "), b.weekly_h && `${b.weekly_h} h/week`].filter(Boolean).join(" · ") :
-      b.name === "colab" ? "you press Run all; never automated" : b.name === "lightning" ? "off until its terms are reviewed" : s.server ? "off on the server" : "runs jobs on this computer"}),
+      b.name === "colab" ? "you press Run all; never automated" : b.name === "lightning" ? "off until its terms are reviewed"
+      : b.name === "modal" ? `${b.gpu} · $${b.monthly_usd} credit per month` : s.server ? "off on the server" : "runs jobs on this computer"}),
     el("td", {}, b.name === "kaggle" ? yes(b.credentials, "token found", "no token") : el("span", {class: "muted", text: "–"}))));
   render(
     el("header", {class: "page"}, el("div", {}, el("h1", {text: "Settings"}), el("p", {class: "muted", text: s.server
@@ -601,19 +655,210 @@ async function settingsView() {
         : "required; 5 wrong tries lock a visitor out for 15 minutes"}),
       el("dt", {text: "View-only password"}), el("dd", {text: s.viewer_access ? "on" : "off"}),
       el("dt", {text: "Work at risk"}), el("dd", {text: `at most ${span(s.runtime.max_lost_work_s)} of GPU work per interruption`}),
-      el("dt", {text: "Version"}), el("dd", {class: "mono", text: s.version}))));
+      el("dt", {text: "Version"}), el("dd", {class: "mono", text: s.version}))),
+    me.desktop ? await desktopCard() : null);
+}
+async function desktopCard() {
+  const d = await api("api/desktop/status");
+  const auto = el("input", {type: "checkbox", id: "autostart", checked: d.autostart, onchange: async (ev) => {
+    const msg = document.getElementById("desk-msg");
+    try { const r = await post("api/desktop/autostart", {autostart: ev.target.checked}); msg.className = "msg good"; msg.textContent = r.autostart ? "GPU Relay starts when you sign in to Windows." : "GPU Relay no longer starts with Windows."; }
+    catch (e) { msg.className = "msg err"; msg.textContent = e.message; ev.target.checked = !ev.target.checked; }
+  }});
+  return el("section", {class: "card"}, el("h2", {text: "Desktop app"}), el("dl", {class: "kv"},
+      el("dt", {text: "Runs"}), el("dd", {text: d.mode === "server" ? `on your server (${d.server_url})` : "on this computer"}),
+      el("dt", {text: "Logs"}), el("dd", {class: "mono", text: "logs folder in the GPU Relay home (desktop.log, controller.log)"})),
+    el("label", {class: "check", for: "autostart"}, auto, "Start GPU Relay in the tray when I sign in to Windows"),
+    d.packaged ? el("label", {class: "check", for: "startmenu"}, el("input", {type: "checkbox", id: "startmenu", checked: d.start_menu, onchange: async (ev) => {
+      const msg = document.getElementById("desk-msg");
+      try { await post("api/desktop/start-menu", {enabled: ev.target.checked}); msg.className = "msg good"; msg.textContent = ev.target.checked ? "Added to the Start menu." : "Removed from the Start menu."; }
+      catch (e) { msg.className = "msg err"; msg.textContent = e.message; ev.target.checked = !ev.target.checked; }
+    }}), "Show GPU Relay in the Start menu") : null,
+    el("p", {class: "small muted", text: d.update.available ? `Version ${d.update.current}. Version ${d.update.latest} is available on GitHub (Releases).`
+      : d.update.latest ? `Version ${d.update.current}, the latest.` : `Version ${d.update.current}.`}),
+    el("div", {class: "row"}, el("a", {class: "btn", href: "#/setup"}, "Run setup again"),
+      el("button", {type: "button", class: "btn", onclick: async () => {
+        const msg = document.getElementById("desk-msg");
+        try { const r = await post("api/desktop/remove"); msg.className = "msg good";
+          msg.textContent = r.removed.length ? `Removed ${r.removed.join(" and ")}. You can now quit from the tray and delete the GPU Relay folder; your jobs and storage stay.` : "Nothing to remove. Quit from the tray, then delete the GPU Relay folder; your jobs and storage stay."; }
+        catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+      }}, "Prepare to remove")),
+    el("p", {class: "msg", id: "desk-msg", role: "status"}));
+}
+
+// ---------------------------------------------------------------- Setup wizard (desktop only)
+const STEPS = [["where", "Where it runs"], ["storage", "Checkpoints"], ["kaggle", "Kaggle"], ["more", "More GPUs"], ["colab", "Colab"], ["done", "Done"]];
+let wizStep = null;
+function wizGo(step) { wizStep = step; setupView(); }
+function wizMsg(text, kind) { const m = document.getElementById("wiz-msg"); m.className = `msg ${kind || ""}`; m.textContent = text; }
+function choice(name, value, checked, title, detail) {
+  return el("label", {class: "choice"}, el("input", {type: "radio", name, value, checked}),
+    el("span", {}, el("strong", {text: title}), el("small", {text: detail})));
+}
+async function busy(button, label, work) {
+  const old = button.textContent;
+  button.disabled = true; button.textContent = label;
+  try { await work(); } catch (e) { wizMsg(e.message, "err"); }
+  finally { button.disabled = false; button.textContent = old; }
+}
+async function setupView() {
+  const st = await api("api/desktop/status");
+  if (!wizStep) wizStep = st.configured && st.mode === "local" ? "done" : "where";
+  const steps = el("ol", {class: "steps", "aria-label": "Setup steps"}, STEPS.map(([id, label], i) => el("li", {},
+    el("button", {type: "button", "aria-current": wizStep === id ? "step" : null, onclick: () => wizGo(id)},
+      el("span", {class: "num", text: String(i + 1)}), label))));
+  const body = {where: wizWhere, storage: wizStorage, kaggle: wizKaggle, more: wizMore, colab: wizColab, done: wizDone}[wizStep](st);
+  render(
+    el("header", {class: "page"}, el("div", {}, el("h1", {text: "Set up GPU Relay"}),
+      el("p", {class: "muted", text: "About 5 minutes. You can change everything later in Settings."}))),
+    me.error ? el("div", {class: "banner bad", role: "alert"}, el("div", {}, el("strong", {text: "GPU Relay could not start with the current settings"}), el("span", {text: me.error}))) : null,
+    steps,
+    el("section", {class: "card wiz"}, body, el("p", {class: "msg", id: "wiz-msg", role: "status"})));
+}
+function wizWhere(st) {
+  const url = el("input", {type: "text", id: "srv", placeholder: "your-server.onrender.com", value: st.server_url || "", autocomplete: "off"});
+  const go = el("button", {type: "button", class: "btn primary"}, "Continue");
+  go.onclick = () => busy(go, "Connecting…", async () => {
+    const where = document.querySelector("input[name=where]:checked").value;
+    if (where === "local") { wizGo("storage"); return; }
+    wizMsg("Connecting… a free server that was asleep can take a minute to wake.");
+    const r = await post("api/setup/server", {url: url.value});
+    wizMsg(`Connected to ${r.url}. Opening your server…`, "good");
+  });
+  return [
+    el("h2", {text: "Where should GPU Relay run?"}),
+    el("p", {class: "muted", text: "The controller starts GPU sessions and relays your jobs between them. It must keep running while jobs run."}),
+    choice("where", "local", st.mode !== "server", "This computer", "Simple, nothing else to host. Jobs relay while this computer is on (closing the window keeps it running in the tray)."),
+    choice("where", "server", st.mode === "server", "My server", "An always-on server you deployed with gpurelay serve (for example on Render). This app opens it and notifies you about your jobs."),
+    field("srv", "Server address (for My server)", url),
+    el("div", {class: "row"}, go)];
+}
+function wizStorage(st) {
+  const hasToken = st.storage.token;
+  const token = el("input", {type: "password", id: "hftok", autocomplete: "off", placeholder: hasToken ? "A token is saved: leave empty to keep using it" : "hf_…"});
+  const repoName = st.storage.repo ? st.storage.repo : "gpurelay-store";
+  const repo = el("input", {type: "text", id: "hfrepo", value: repoName, autocomplete: "off"});
+  const go = el("button", {type: "button", class: "btn primary"}, "Check and continue");
+  go.onclick = () => busy(go, "Checking…", async () => {
+    const kind = document.querySelector("input[name=store]:checked").value;
+    if (kind === "local") { await post("api/setup/local-storage"); wizGo("done"); return; }
+    const r = await post("api/setup/hf", {token: token.value || null, repo: repo.value || null});
+    token.value = "";
+    wizMsg(`Signed in as ${r.user}. Private repo ${r.repo} ${r.created ? "created" : "verified"}.${r.keyring ? "" : " No keyring found: set HF_TOKEN before using GPU Relay."}`, "good");
+    setTimeout(() => wizGo("kaggle"), 1200);
+  });
+  return [
+    el("h2", {text: "Where should checkpoints live?"}),
+    el("p", {class: "muted", text: "Every GPU session saves and loads your job's progress here, so it must be reachable from Kaggle and Colab."}),
+    choice("store", "hf", st.storage.kind !== "localfs", "Hugging Face private repo (recommended)", "Free and fast from Kaggle and Colab. The repo is always created private."),
+    choice("store", "local", st.storage.kind === "localfs", "This computer only", "For trying GPU Relay out, or for your own GPU. No cloud GPUs."),
+    el("div", {class: "grid2"},
+      field("hftok", "Hugging Face access token (write)", token,
+        el("span", {class: "small muted", text: "Create one on huggingface.co under Settings > Access Tokens. Saved in Windows Credential Manager; never written to config files, notebooks or logs."})),
+      field("hfrepo", "Storage repo name", repo)),
+    el("div", {class: "row"}, go)];
+}
+function wizKaggle(st) {
+  const k = st.kaggle;
+  const ktok = el("input", {type: "password", id: "kgtok", autocomplete: "off", placeholder: k.credentials ? "Found on this computer: leave empty to keep it" : "Paste token"});
+  const stok = el("input", {type: "password", id: "kgsess", autocomplete: "off", placeholder: "Leave empty to reuse your Hugging Face token"});
+  const gpu = el("select", {id: "kgacc"}, [["NvidiaTeslaT4", "Tesla T4"], ["NvidiaTeslaP100", "Tesla P100"]].map(([v, t]) => el("option", {value: v, selected: k.accelerator === v}, t)));
+  const hours = el("input", {type: "number", id: "kghrs", value: String(k.weekly_hours || 30), min: "1", max: "168"});
+  const go = el("button", {type: "button", class: "btn primary"}, "Connect Kaggle");
+  go.onclick = () => busy(go, "Connecting…", async () => {
+    const r = await post("api/setup/kaggle", {kaggle_token: ktok.value || null, session_token: stok.value || null, accelerator: gpu.value, weekly_hours: Number(hours.value) || null});
+    ktok.value = ""; stok.value = "";
+    wizMsg(`Kaggle connected as ${r.username}.`, "good");
+    setTimeout(() => wizGo("more"), 1200);
+  });
+  return [
+    el("h2", {text: "Connect Kaggle"}),
+    el("p", {class: "muted", text: "GPU Relay starts Kaggle sessions for you through Kaggle's official API. Notebooks it creates are always private."}),
+    k.enabled ? el("div", {class: "banner info"}, el("div", {}, el("span", {text: `Connected as ${k.username}. Connect again only to change the token or settings.`}))) : null,
+    el("ol", {class: "howto"},
+      el("li", {text: "On kaggle.com open Settings, then API, then Create New Token."}),
+      el("li", {text: "Paste the token below. Your account needs a verified phone number for GPUs."})),
+    el("div", {class: "grid2"},
+      field("kgtok", "Kaggle API token", ktok),
+      field("kgsess", "Hugging Face token for Kaggle sessions (optional)", stok,
+        el("span", {class: "small muted", text: "Safer: a fine-grained token that can write only to your storage repo. It is kept in a private Kaggle dataset that only your sessions read."})),
+      field("kgacc", "GPU", gpu),
+      field("kghrs", "Weekly GPU hours", hours)),
+    el("div", {class: "row"}, go, el("button", {type: "button", class: "btn", onclick: () => wizGo("more")}, "Skip"))];
+}
+function wizMore(st) {
+  const m = st.modal;
+  const tid = el("input", {type: "password", id: "mdid", autocomplete: "off", placeholder: m.credentials ? "Found on this computer: leave empty" : "ak-…"});
+  const tsec = el("input", {type: "password", id: "mdsec", autocomplete: "off", placeholder: m.credentials ? "Found on this computer: leave empty" : "as-…"});
+  const gpu = el("select", {id: "mdgpu"}, [["T4", "T4 ($0.59/h)"], ["L4", "L4 (faster, costs more)"], ["A10G", "A10G (faster, costs more)"]].map(([v, t]) => el("option", {value: v, selected: m.gpu === v}, t)));
+  const terms = el("input", {type: "checkbox", id: "mdterms"});
+  const go = el("button", {type: "button", class: "btn primary"}, "Add Modal");
+  go.onclick = () => busy(go, "Checking…", async () => {
+    await post("api/setup/modal", {enabled: true, terms_reviewed: terms.checked, token_id: tid.value || null, token_secret: tsec.value || null, gpu: gpu.value});
+    tid.value = ""; tsec.value = "";
+    wizMsg("Modal added: about 50 more T4 hours a month.", "good");
+    setTimeout(() => wizGo("colab"), 1200);
+  });
+  return [
+    el("h2", {text: "More free GPU hours (optional)"}),
+    el("p", {class: "muted", text: "Each platform you add is another free allowance. GPU Relay spends credits that expire this month first."}),
+    m.enabled ? el("div", {class: "banner info"}, el("div", {}, el("span", {text: `Modal is on (${m.gpu}, $${m.monthly_usd} a month).`}))) : null,
+    el("div", {class: "note"}, el("strong", {text: "Modal: about $30 of free compute a month (≈ 50 T4 hours)"}),
+      el("span", {text: "Sign up on modal.com, then Settings > API Tokens > New Token, and paste both parts here. GPU Relay uses Modal's official SDK only."})),
+    el("div", {class: "grid2"}, field("mdid", "Modal token id", tid), field("mdsec", "Modal token secret", tsec), field("mdgpu", "GPU", gpu)),
+    el("label", {class: "check", for: "mdterms"}, terms, "I read Modal's terms of service and accept them for this use"),
+    el("div", {class: "note"}, el("strong", {text: "Lightning AI"}),
+      el("span", {text: "Built in but off until its terms are reviewed (its free allowance is unclear). Turn it on later in config.toml with terms_reviewed = true."})),
+    el("div", {class: "row"}, go, el("button", {type: "button", class: "btn", onclick: () => wizGo("colab")}, "Skip"))];
+}
+function wizColab(st) {
+  const on = el("input", {type: "checkbox", id: "colab", checked: st.colab.enabled || !st.kaggle.enabled});
+  const go = el("button", {type: "button", class: "btn primary"}, "Continue");
+  go.onclick = () => busy(go, "Saving…", async () => { await post("api/setup/colab", {enabled: on.checked}); wizGo("done"); });
+  return [
+    el("h2", {text: "Colab as a backup (optional)"}),
+    el("p", {class: "muted", text: "Colab's rules don't allow remote control, so GPU Relay never runs Colab for you. When Kaggle is out of hours it tells you, and you open a ready notebook and press Run all."}),
+    el("label", {class: "check", for: "colab"}, on, "Ask me to use Colab when Kaggle can't continue"),
+    el("div", {class: "note"}, el("strong", {text: "One-time step in Colab"}),
+      el("span", {text: "Add your Hugging Face token as a Colab secret (the key icon) named GPURELAY_HF_TOKEN and allow notebook access."})),
+    el("div", {class: "row"}, go)];
+}
+function wizDone(st) {
+  const auto = el("input", {type: "checkbox", id: "auto", checked: st.autostart});
+  const ready = st.configured;
+  const go = el("button", {type: "button", class: "btn primary", disabled: !ready}, "Open GPU Relay");
+  go.onclick = () => busy(go, "Starting…", async () => {
+    const r = await post("api/setup/finish", {autostart: auto.checked});
+    wizMsg(r.warning ? `Starting GPU Relay. ${r.warning}` : "Starting GPU Relay…", "good");
+    setTimeout(() => { wizStep = null; location.replace("./#/"); location.reload(); }, 2500);
+  });
+  const store = st.storage.kind === "localfs" ? "This computer only (jobs run here, on the CPU or your own GPU)"
+    : st.storage.repo ? `Hugging Face, private (${st.storage.repo})` : "not chosen yet";
+  return [
+    el("h2", {text: ready ? "Ready" : "Almost there"}),
+    el("ul", {},
+      el("li", {text: `Checkpoints: ${store}`}),
+      el("li", {text: `Kaggle: ${st.kaggle.enabled ? `${st.kaggle.username} · ${(st.kaggle.accelerator || "").replace("NvidiaTesla", "Tesla ")} · ${st.kaggle.weekly_hours} h per week` : "not connected"}`}),
+      el("li", {text: `Modal: ${st.modal.enabled ? `${st.modal.gpu}, $${st.modal.monthly_usd} a month` : "not added"}`}),
+      el("li", {text: `Colab: ${st.colab.enabled ? "ask me when needed" : "off"}`})),
+    ready ? null : el("p", {class: "msg err", text: "Choose where checkpoints live first (step 2)."}),
+    el("label", {class: "check", for: "auto"}, auto, "Start GPU Relay in the tray when I sign in to Windows"),
+    el("div", {class: "row"}, go)];
 }
 
 // ---------------------------------------------------------------- router
 function route() {
   const hash = location.hash.replace(/^#\/?/, "");
   if (hash.startsWith("job/")) return {name: "job", id: decodeURIComponent(hash.slice(4))};
-  return {name: ["submit", "budget", "settings"].includes(hash) ? hash : "jobs"};
+  return {name: ["submit", "budget", "settings", "setup"].includes(hash) ? hash : "jobs"};
 }
 async function show() {
-  const r = route();
-  setNav(r.name === "job" ? "jobs" : r.name);
+  let r = route();
+  if (me.desktop && !me.configured && r.name !== "setup") { location.hash = "#/setup"; return; }
+  if (r.name === "setup" && !me.desktop) { location.hash = "#/"; return; }
+  setNav(r.name === "job" ? "jobs" : r.name === "setup" ? "settings" : r.name);
   try {
+    if (r.name === "setup") { await setupView(); return; }
     if (!overview) await refreshShell();
     if (r.name === "jobs") jobsView();
     else if (r.name === "job") await jobView(r.id);
@@ -623,10 +868,11 @@ async function show() {
   } catch (e) { render(errorBox(e)); }
 }
 async function tick() {
+  if (me.desktop && !me.configured) return;  // setup only: nothing to refresh
   try { await refreshShell(); } catch (e) { return; }
   const r = route();
   const typing = document.activeElement && ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
-  if (typing || r.name === "submit" || r.name === "settings") return;  // never wipe what the user is doing
+  if (typing || ["submit", "settings", "setup"].includes(r.name)) return;  // never wipe what the user is doing
   if (r.name === "job") {
     if (outTab !== "log") return;
     const log = document.querySelector("pre.log");  // reading older output: leave it in place
@@ -646,6 +892,11 @@ window.addEventListener("hashchange", () => { if (route().name !== "job") outTab
       document.getElementById("who").textContent = owner() ? "Logged in as owner" : "Logged in as viewer (read-only)";
     }
   } catch (e) { /* the page shows the error below */ }
+  if (me.desktop && !me.configured) {
+    document.querySelector(".links").hidden = true;
+    document.getElementById("ctl-text").textContent = "Setting up";
+    document.getElementById("ctl-dot").className = "dot";
+  }
   await show();
   timer = setInterval(tick, 10000);
 })();

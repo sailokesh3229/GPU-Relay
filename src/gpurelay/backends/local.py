@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import IO
 
@@ -48,6 +49,8 @@ class LocalBackend:
         gpu_label: str | None = None,
         python: str = sys.executable,
         env: dict[str, str] | None = None,
+        python_resolver: Callable[[], str] | None = None,
+        ready_check: Callable[[], str | None] | None = None,
     ) -> None:
         self.name = name
         self.storage = storage
@@ -56,6 +59,9 @@ class LocalBackend:
         self.max_session_s = max_session_s
         self.gpu_label = gpu_label
         self.python = python
+        # The packaged app resolves the interpreter on first use (backends/local_env.py).
+        self.python_resolver = python_resolver
+        self.ready_check = ready_check  # returns why jobs cannot run here, or None
         self.extra_env = dict(env or {})
         self._procs: dict[str, subprocess.Popen[bytes]] = {}
         self._consoles: dict[str, IO[bytes]] = {}
@@ -72,7 +78,10 @@ class LocalBackend:
         )
 
     def check_ready(self) -> ReadyStatus:
-        return ReadyStatus(ready=True)
+        reason = self.ready_check() if self.ready_check is not None else None
+        return (
+            ReadyStatus(ready=True) if reason is None else ReadyStatus(ready=False, reason=reason)
+        )
 
     def segment_dir(self, job_id: str, segment_id: str) -> Path:
         return self.root / job_id / segment_id
@@ -82,6 +91,9 @@ class LocalBackend:
         seg_dir.mkdir(parents=True, exist_ok=True)
         console_path = seg_dir / "console.txt"
         deadline = time.time() + min(deadline_s, self.max_session_s)
+        if self.python_resolver is not None:
+            self.python = self.python_resolver()
+            self.python_resolver = None
         cmd = [
             self.python,
             "-m",

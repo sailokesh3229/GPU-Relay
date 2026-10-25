@@ -150,10 +150,11 @@ class LocalSettings(_Section):
     enabled: bool = True
     max_concurrent: int = Field(default=1, ge=1)
     gpu_label: str | None = None  # e.g. "RTX 3060"; None means detect / CPU
+    detect_gpu: bool = True  # find an NVIDIA GPU with nvidia-smi when gpu_label is unset
     max_session_s: float = Field(default=7 * 24 * _HOUR, gt=0)
 
 
-_RESERVED_BACKEND_NAMES = frozenset({"local", "kaggle", "colab_manual", "lightning"})
+_RESERVED_BACKEND_NAMES = frozenset({"local", "kaggle", "colab_manual", "lightning", "modal"})
 
 
 class SimulatedSettings(_Section):
@@ -164,6 +165,9 @@ class SimulatedSettings(_Section):
     max_session_s: float = Field(default=3600.0, gt=0)
     budget_hours: float | None = Field(default=None, ge=0)  # None = unlimited
     budget_model: BudgetModel = BudgetModel.WEEKLY_ROLLING
+    # Budget in another unit (P11): budget_hours is then the amount in that unit.
+    budget_unit: Literal["h", "usd", "credits"] = "h"
+    cost_per_hour: float = Field(default=1.0, gt=0)
     max_concurrent: int = Field(default=1, ge=1)
     kill_after_s: float | None = Field(default=None, gt=0)
     kill_between_s: tuple[float, float] | None = None
@@ -190,6 +194,9 @@ class LightningSettings(_Section):
     # #11): third-party guides say 15 credits/month (~22 T4-hours), the homepage "80 free
     # GPU hours". The conservative figure is the default; correct it with `gpurelay quota set`.
     monthly_gpu_hours: float = Field(default=22.0, ge=0)
+    # Or the grant as credits (P11): both set -> hours = monthly_credits / credits_per_hour.
+    monthly_credits: float | None = Field(default=None, ge=0)
+    credits_per_hour: float | None = Field(default=None, gt=0)
     budget_model: BudgetModel = BudgetModel.MONTHLY
     machine: str = "T4"  # a lightning_sdk ``Machine`` member name (T4, L4, A100, ...)
     # VERIFY: container image the job runs in (CUDA + torch preinstalled).
@@ -210,6 +217,35 @@ class LightningSettings(_Section):
         return self
 
 
+class ModalSettings(_Section):
+    """Modal backend (plan P12), through the official ``modal`` SDK only.
+
+    Gated like Lightning AI (hard rule 4): enabling it also requires ``terms_reviewed = true``
+    (the owner read Modal's terms of service and accepts them for this use).
+    """
+
+    enabled: bool = False
+    terms_reviewed: bool = False
+    gpu: str = "T4"  # a Modal GPU name: T4, L4, A10G, A100, ...
+    # VERIFY on modal.com/pricing: the Starter plan's monthly credit and the GPU's price.
+    monthly_credit_usd: float = Field(default=30.0, ge=0)
+    usd_per_hour: float = Field(default=0.59, gt=0)
+    budget_model: BudgetModel = BudgetModel.MONTHLY
+    image: str = "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime"
+    # One sandbox lives at most 24 h; segments hand off after this long.
+    max_session_s: int = Field(default=4 * _HOUR, gt=0, le=24 * _HOUR)
+    max_concurrent: int = Field(default=1, ge=1)
+
+    @model_validator(mode="after")
+    def _gated(self) -> ModalSettings:
+        if self.enabled and not self.terms_reviewed:
+            raise ValueError(
+                "the Modal backend needs `terms_reviewed = true`: read Modal's terms of service "
+                "first (spec §3 rule 4)"
+            )
+        return self
+
+
 class BackendsSettings(_Section):
     """Exactly one section per backend type: one account per service (hard rule 1)."""
 
@@ -218,6 +254,7 @@ class BackendsSettings(_Section):
     simulated: list[SimulatedSettings] = Field(default_factory=list)
     colab_manual: ColabSettings = Field(default_factory=ColabSettings)
     lightning: LightningSettings = Field(default_factory=LightningSettings)
+    modal: ModalSettings = Field(default_factory=ModalSettings)
 
     @model_validator(mode="after")
     def _check_simulated(self) -> BackendsSettings:

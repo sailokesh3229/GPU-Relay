@@ -183,7 +183,13 @@ def test_settings_report_status_not_secrets(
     r = client.get("/api/settings")
     data = r.json()
     assert data["server"] is False and data["storage"]["token"] is True
-    assert {b["name"] for b in data["backends"]} == {"kaggle", "colab", "lightning", "local"}
+    assert {b["name"] for b in data["backends"]} == {
+        "kaggle",
+        "colab",
+        "lightning",
+        "modal",
+        "local",
+    }
     assert "hf_example_value_for_test" not in r.text
 
 
@@ -192,3 +198,21 @@ def test_page_has_every_screen(tmp_path: Path) -> None:
     page = client.get("/").text
     for marker in ("#/submit", "#/budget", "#/settings", "Resumability check", "Relay timeline"):
         assert marker in page
+
+
+def test_budget_correction_in_the_platforms_own_unit(tmp_path: Path) -> None:
+    """P11: a dollar budget is corrected in dollars, recorded as GPU hours."""
+    from gpurelay.controller.quota import Budget
+    from gpurelay.models import BudgetModel
+
+    client, h = _setup(tmp_path)
+    slot = h.controller.backends["kaggle"]
+    slot.budget = Budget.from_amount(BudgetModel.MONTHLY, 30.0, "usd", 0.59, estimate=False)
+    [row] = client.get("/api/overview").json()["backends"]
+    assert (row["unit"], row["cost_per_h"], row["model"]) == ("usd", 0.59, "monthly")
+    r = client.post("/api/quota/kaggle", json={"used_amount": 5.9}, headers=ACT)
+    assert r.status_code == 200
+    [entry] = [e for e in h.db.ledger("kaggle") if e.kind == "correction"]
+    assert entry.used_h == pytest.approx(10.0)
+    bad = client.post("/api/quota/kaggle", json={"used_amount": -1}, headers=ACT)
+    assert bad.status_code == 400

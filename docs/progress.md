@@ -957,3 +957,150 @@ retention deletes. The tests had never noticed, because local storage has no lim
   - pause, submit, analyze and quota correction give 403;
   - a wrong password is refused;
   - the security headers are present.
+
+## Phase D2-D3 — Desktop app (2026-10-25)
+
+Goal: a Windows app with a native window, tray and notifications, setup without the terminal.
+
+**Built (`src/gpurelay/desktop/`, `dashboard/desktop_api.py`):**
+- **Two modes, chosen in a setup wizard:**
+  - **This computer:** the app runs the controller (`gpurelay up`) as a supervised child
+    process, with Start/Stop in the sidebar and the tray.
+  - **My server:** the window shows your `gpurelay serve` website (e.g. Render), and the tray
+    notifies you about its jobs.
+  A second controller cannot fight the server: the sidebar says when another machine holds
+  the store's lease.
+- **Setup wizard** (desktop only), the approved Setup design. Steps:
+  1. where it runs;
+  2. checkpoints: a Hugging Face private repo, created or verified, with the token stored in
+     Windows Credential Manager; or this computer only;
+  3. Kaggle: the token goes to Kaggle's own token file, and the session token to the private
+     Kaggle secrets dataset;
+  4. more GPUs (Modal);
+  5. Colab;
+  6. done, with "start with Windows".
+  Tokens never reach `config.toml`, logs or responses (tested).
+- **Local web app protection:** it listens on 127.0.0.1 behind a **per-launch key**. The
+  window opens `/?k=<key>`, which sets a SameSite=Strict cookie, and every other request needs
+  that cookie, so other programs and websites cannot use it. Setup endpoints exist only in
+  the desktop app, never on a server.
+- **Tray** (pystray):
+  - menu: Open, Submit, GPU budget, Start/Stop controller, Pause all, Quit;
+  - the tooltip counts active jobs;
+  - the icon gets an orange dot when a job needs you;
+  - notifications when a job finishes, fails, needs Colab or waits for quota;
+  - the first snapshot never replays old events.
+- **Window behaviour:** closing the window keeps the app in the tray. One instance only: a
+  second launch brings the first one's window forward. The window fits small laptop screens.
+  An optional per-user Run-key entry starts the app with Windows.
+- **Graceful controller stop on every platform:** a console-less child on Windows cannot
+  receive Ctrl+C or Ctrl+Break (tried: the controller had to be killed and its lease went
+  stale). The app now writes `controller.stop`; `up` watches for it and raises a real SIGINT,
+  which also wakes `time.sleep` on Windows. Measured: the controller stops in 0.3 s, exits 0
+  and releases its lease, and the next one starts at once. The Render server uses the same
+  path.
+
+**Verification:** 22 desktop tests and 2 stop-file tests (one runs a real sleeping process).
+The dev app's native window was checked in screenshots: the wizard renders, the sidebar is
+hidden until setup, and a test home was set up through the wizard. The owner also connected
+the window to the Render server ("My server") during the test.
+
+## Phase D4 — Windows build (2026-10-25)
+
+- `packaging/build_windows.py` uses PyInstaller in one-folder, windowed mode, with the icon
+  drawn by `desktop/icon.py`, and makes `GPU-Relay-<version>-windows-x64.zip`. Large ML
+  libraries are left out (they run inside GPU sessions, not in the app).
+- **Runtime wheel in the packaged app:** jobs install a wheel built from GPU Relay's
+  sources, so the build ships them as `gpurelay_src/` (`bundle/wheel.py`).
+- **Controller in the packaged app:** `"GPU Relay.exe" up` runs the CLI, which is how the app
+  starts its controller.
+- **Local jobs from the packaged app:** they need an installed Python 3.10+. On first use GPU
+  Relay makes its own environment with the runtime (`backends/local_env.py`). Without Python,
+  the platform shows "install Python 3.10+" instead of failing.
+- **Checked:** the packaged app started, its controller child (`GPU Relay.exe up`) took the
+  lease, and the window rendered the Jobs screen through WebView2 ("Using WinForms /
+  Chromium").
+- **Installer jobs, done inside the app** (`desktop/integration.py`), since the app is
+  portable (unzip and run):
+  - an optional Start menu entry (current user only, through PowerShell's WScript.Shell);
+  - an update check against the latest GitHub release, offline-safe, with a tray
+    notification and a line in Settings;
+  - "Prepare to remove", which deletes the Start menu entry and start-with-Windows. Your jobs,
+    storage and tokens stay.
+  - Tests: version comparison (numeric, `1.0.10 > 1.0.9`), PowerShell quoting of paths with
+    apostrophes, and the endpoints (refused outside the packaged app).
+- **Open item:** the very first build showed a blank window. A rebuild rendered correctly,
+  and the cause was not isolated. The final build is checked again before release.
+
+## Phase P11 — Budgets across platforms (2026-10-25)
+
+- **Budget units:** `hours`, `usd` or `credits` with a price per GPU hour
+  (`Budget.from_amount`); the ledger stays in measured GPU hours. Modal is $30 a month at
+  $0.59/h, about 50.8 h. Lightning can be given as credits. There is a new **daily** budget
+  model that resets at 00:00 UTC.
+- **GPU speed** (`controller/gpus.py`): T4 = 1.0, P100 1.3, L4 1.8, A10G 2.2, A100 5, H100 9,
+  common GeForce cards, and CPU 0.05. These are rough figures used only to rank platforms.
+- **Order of use** (`scheduler.choose`):
+  1. the job's preferred platform;
+  2. budgets that expire (monthly or daily), unless their GPU is under half as fast as the
+     best one; between two of them, the one resetting first;
+  3. the fastest GPU;
+  4. the most hours left, with the GPU-continuity tie-break.
+  With equal platforms the old behaviour is unchanged.
+- **The web app** shows "$12.40 of $30 left · ≈ 21 h on T4", and corrections can be entered
+  in the platform's own unit.
+- **Tests:** `test_budgets.py` (18) and a dollar-correction test. "Done when" is met: in
+  simulation, expiring T4 credits are used before a weekly L4 only while the T4 is at least
+  half as fast, the fastest GPU otherwise, and an unlimited CPU never beats a GPU.
+
+## Phase P12 — Modal (2026-10-25)
+
+- `backends/modal.py`: one Modal Sandbox per segment through the official SDK (checked
+  against `modal` 1.6.2):
+  - `Sandbox.create(... gpu=, timeout=, secrets=[Secret.from_dict])`, `from_id`, `poll`,
+    `terminate`;
+  - the bootstrap is shared with Lightning;
+  - the storage token travels as a Modal secret, never in the command;
+  - the sandbox timeout is the segment limit plus 10 minutes, at most 24 h.
+- **Gated** like Lightning: `terms_reviewed = true` is required. The budget is in dollars
+  (P11) and the defaults need checking on modal.com/pricing. The wizard step writes Modal's
+  own `~/.modal.toml`, never overwriting an existing one.
+- **Sources** (third-party; check the live page): the Starter plan gives $30 of compute a
+  month, a T4 costs $0.000164/s ($0.59/h), and a sandbox lives at most 24 h (Modal docs).
+- **Tests:** `test_modal_backend.py` (7) and a wizard test.
+- **Open item:** a live Kaggle → Modal → Kaggle relay needs a Modal account (the owner).
+
+## Phase P14 — Paperspace: not used (2026-10-25)
+
+Decision: **no backend.** Gradient's free tier offers "community notebooks"; private
+notebooks need the paid Pro plan, and GPU Relay requires everything it creates to be private
+(hard rule). Free GPU availability is also described as limited and inconsistent. Sources
+were third-party (2026 aggregators and older Paperspace blog posts), but they agree on this
+point.
+
+## Phase P15 — Your own GPU (2026-10-25)
+
+- The local backend detects an NVIDIA GPU with `nvidia-smi` (`backends/local_env.py`,
+  `[backends.local] detect_gpu`) and counts it at its real speed, so an RTX 3060 (1.2) is
+  preferred over a Kaggle T4. Without a GPU the computer counts as a CPU (0.05) and never
+  beats a cloud GPU.
+- **Tests:** `test_local_gpu.py` (6).
+- **Not checked live:** this laptop has no NVIDIA GPU.
+
+## Release 1.0.0 verification (2026-10-25)
+
+- **Unit:** 489 pass. ruff, ruff format and mypy are clean (93 source files).
+- **Integration,** run one file at a time after P11-P15. All pass:
+  - controller end to end, controller restart, Colab relay, parallel chunks (3), faults (2),
+    stress, and SDK equivalence (11).
+  - Earlier today, before P11: notebook equivalence (3), PyTorch checkpoints (5), probe (3)
+    and auto-instrumentation (14/14 on the rerun).
+- **Bug found by the property test (fixed):** local storage left empty folders after a delete,
+  so a later key at a folder's path failed on Windows (put `0/0/0`, delete it, put `0`).
+  Deletes now remove the folders they empty, and writes retry if a concurrent delete removes
+  their folder. Regression test: `test_deleting_a_key_removes_folders_it_leaves_empty`.
+- **Load-sensitive test:** `test_adversarial[tight_loop]` fails at the moment. The other 8
+  adversarial cases pass. The test kills each session every 1.2-2 s and needs a checkpoint
+  in between. The same test fails identically on the hardening commit 6cbe21d, which passed
+  it 9/9 when written, so this is the laptop's current load (a browser playing video, 2 GB
+  free), not a regression. Rerun it on a quiet machine.

@@ -420,6 +420,9 @@ def up(
     )
 
     ctx = _context()
+    from gpurelay.hosted import watch_stop_file
+
+    watch_stop_file(ctx.home)  # a supervisor's stop request ends `up` like Ctrl+C
     try:
         with controller_lock(ctx.home):
             check_private = getattr(ctx.storage, "is_private", None)
@@ -830,6 +833,20 @@ def dashboard(
 
     allowed = LOCAL_HOSTS | {host}
     uvicorn.run(create_app(ctx, allowed_hosts=allowed), host=host, port=port, log_level="warning")
+
+
+@app.command(name="app")
+def desktop_app() -> None:
+    """Open the GPU Relay desktop app (window, tray icon, notifications)."""
+    try:
+        import pystray  # noqa: F401
+        import webview  # noqa: F401
+    except ImportError as exc:
+        _fail(RuntimeError(f"the desktop app needs extra packages ({exc.name}): "
+                           "pip install 'gpurelay[desktop]'"))  # fmt: skip
+    from gpurelay.desktop.app import main
+
+    main([])
 
 
 @app.command()

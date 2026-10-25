@@ -56,10 +56,17 @@ class LocalFSStorage:
         return self._root.joinpath(*validate_key(remote).split("/"))
 
     def _atomic_write(self, dest: Path, write: Callable[[BinaryIO], object]) -> None:
-        dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_name(f"{dest.name}{TMP_MARKER}{uuid.uuid4().hex[:12]}")
+        for attempt in range(3):
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                out = open(tmp, "wb")  # noqa: SIM115 - closed by the with below
+                break
+            except FileNotFoundError:  # a concurrent delete removed the empty folder: again
+                if attempt == 2:
+                    raise
         try:
-            with open(tmp, "wb") as fh:
+            with out as fh:
                 write(fh)
                 fh.flush()
                 os.fsync(fh.fileno())
@@ -134,6 +141,15 @@ class LocalFSStorage:
         if path.is_dir():
             return  # a directory is not a key (only a prefix of other keys): nothing to delete
         _retry_os(lambda: path.unlink(missing_ok=True))
+        # Folders the key leaves empty go too: otherwise a later key at a folder's path (put
+        # "a/b", delete it, put "a") would collide with the empty folder.
+        parent = path.parent
+        while parent != self._root and self._root in parent.parents:
+            try:
+                parent.rmdir()  # only succeeds when empty
+            except OSError:
+                break
+            parent = parent.parent
 
     def exists(self, remote: str) -> bool:
         """Return True if ``remote`` is an existing key."""

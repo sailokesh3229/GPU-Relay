@@ -6,7 +6,7 @@ The manual SDK is re-exported here::
     for epoch in relay.range(100): ...
 """
 
-__version__ = "0.1.0.dev0"
+__version__ = "1.0.0"
 
 from gpurelay.sdk import (
     Chunk,

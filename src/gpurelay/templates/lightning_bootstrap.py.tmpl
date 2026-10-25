@@ -1,4 +1,4 @@
-"""GPU Relay bootstrap for a Lightning AI job (generated -- contains no secrets).
+"""GPU Relay bootstrap for a $backend session (generated -- contains no secrets).
 
 job $job_id, segment $segment_id
 """
@@ -28,7 +28,8 @@ def pip(*args):
     )
 
 
-# The storage token comes from the job's environment, never from this file.
+# The storage token comes from the session's environment (a platform secret), never from
+# this file.
 token = os.environ.get("HF_TOKEN", "")
 if not token.startswith("hf_"):
     log("HF_TOKEN is missing from the job environment")
@@ -56,14 +57,14 @@ command = [
     "--storage", f"hf:{REPO_ID}",
     "--work-dir", "/tmp/gpurelay/job",
     "--runtime-dir", "/tmp/gpurelay/runtime",
-    "--backend", "lightning",
+    "--backend", $backend_py,
     "--deadline", repr(START + DEADLINE_S),
     "--settings", json.dumps(SETTINGS),
     "--install-requirements",
 ]
 env = dict(os.environ, PYTHONHASHSEED="0", MPLBACKEND="Agg")
 try:
-    # Lightning has no session limit: never let a stuck segment keep spending credits.
+    # Never let a stuck segment keep spending credits past its hard limit.
     code = subprocess.call(command, env=env, timeout=max(HARD_LIMIT_S - (time.time() - START), 60))
 except subprocess.TimeoutExpired:
     log("hard time limit reached; stopping (the controller resumes from the last checkpoint)")
