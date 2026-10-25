@@ -928,3 +928,32 @@ retention deletes. The tests had never noticed, because local storage has no lim
 - All 13 integration files pass, run one at a time. `test_equivalence_auto` had 1 failure out
   of 14 on its first run (the summary did not say which test) and passed 14/14 on the rerun.
   It may be the known timing sensitivity on this laptop, but that is not confirmed.
+- **Batched uploads** (`storage.base.put_all`):
+  - a job bundle (archive, runtime wheel, manifest last) is 1 commit instead of 3;
+  - a job's final outputs are 1 commit, however many files (a job saving 50 images used to
+    cost 50+);
+  - a `local:` data folder is 1 commit.
+  - Tests: `test_a_bundle_is_one_commit` and `test_many_output_files_are_one_commit`.
+  - 427 unit tests pass. The integration files that cover bundles and outputs (controller
+    end to end, Colab relay, controller restart, parallel chunks, faults, notebook and SDK
+    equivalence) all pass.
+
+**Live end to end (2026-10-25), Render server `gpu-relay-9uuh.onrender.com`:**
+- The owner submitted `examples/quickstart.py` through the website (job-6c7ac52368b4).
+- 11:11:18 the server launched it on Kaggle. Checkpoint 1 was committed at 11:12:00 as data
+  plus LATEST. The job completed at 11:14:26 after 1 session and 188 s of GPU time, and its
+  outputs were assembled into the store.
+- 11:16:14 the job database was backed up, because it had changed. The lease was renewed at
+  11:16 and 11:26, every 10 minutes.
+- 11:29 Render put the idle server to sleep. It released its lease cleanly.
+- 11:54 a visit woke it. It took the lease straight away, and the jobs and results were all
+  there.
+- The whole job cost 17 commits in 45 minutes, before the batched-upload fix (which brings it
+  to 13).
+- Earlier, a redeploy (W3b push) restored all 8 jobs and the Kaggle budget (27.67 h left).
+  The new server made only its lease commit; the unchanged backup was skipped.
+- Guest checks on the live site:
+  - all screens load;
+  - pause, submit, analyze and quota correction give 403;
+  - a wrong password is refused;
+  - the security headers are present.

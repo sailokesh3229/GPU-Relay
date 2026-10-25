@@ -87,6 +87,21 @@ class BatchStorage(Protocol):
         ...
 
 
+def put_all(
+    storage: Storage, items: Sequence[tuple[str, Path | bytes]], message: str = "gpurelay batch"
+) -> None:
+    """Store every (key, file or bytes) pair: in one commit when the storage batches (the Hub
+    allows 128 commits per hour per repo), else one write each, in order."""
+    if isinstance(storage, BatchStorage):
+        storage.put_many(items, message=message)
+        return
+    for remote, source in items:
+        if isinstance(source, bytes):
+            storage.put_bytes(source, remote)
+        else:
+            storage.put_file(source, remote)
+
+
 def sha256_file(path: Path, chunk_size: int = 1 << 20) -> str:
     """Streaming SHA-256 hex digest of a local file."""
     digest = hashlib.sha256()

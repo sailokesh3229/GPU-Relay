@@ -26,7 +26,7 @@ from gpurelay.bundle.wheel import build_runtime_wheel
 from gpurelay.errors import ChecksumMismatchError, GpuRelayError, StorageNotFoundError
 from gpurelay.models import DataSourceKind, DataSpec, JobKind
 from gpurelay.pathutil import safe_join
-from gpurelay.storage.base import Storage, sha256_file
+from gpurelay.storage.base import Storage, put_all, sha256_file
 from gpurelay.storage.layout import bundle_prefix
 
 ARCHIVE_NAME = "bundle.tar.zst"
@@ -105,9 +105,13 @@ def _stage_spec(storage: Storage, spec: DataSpec, base_dir: Path) -> StagedData:
                 if source.is_file()
                 else sorted(p for p in source.rglob("*") if p.is_file())
             )
-            for file in files:
+
+            def key_for(file: Path) -> str:
                 rel = file.name if source.is_file() else file.relative_to(source).as_posix()
-                storage.put_file(file, f"{prefix}/{rel}")
+                return f"{prefix}/{rel}"
+
+            items: list[tuple[str, Path | bytes]] = [(key_for(f), f) for f in files]
+            put_all(storage, items, message=f"gpurelay data {key[:12]}")
         return StagedData(spec=spec, target=source.name, cache_key=key)
     if spec.kind is DataSourceKind.URL:
         name = spec.ref.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0] or "download"
@@ -158,13 +162,15 @@ def upload_bundle(
     with tempfile.TemporaryDirectory(prefix="gpurelay-bundle-") as tmp:
         archive = Path(tmp) / ARCHIVE_NAME
         archive.write_bytes(_pack(files))
-        storage.put_file(archive, _archive_key(job_id))
+        items: list[tuple[str, Path | bytes]] = [(_archive_key(job_id), archive)]
         if include_wheel:
             wheel = build_runtime_wheel(Path(tmp))
-            storage.put_file(wheel, f"{bundle_prefix(job_id)}/{wheel.name}")
+            items.append((f"{bundle_prefix(job_id)}/{wheel.name}", wheel))
             manifest.runtime_wheel = wheel.name
-    manifest.content_hash = manifest.compute_hash()
-    storage.put_bytes(manifest.model_dump_json(indent=2).encode(), _manifest_key(job_id))
+        manifest.content_hash = manifest.compute_hash()
+        # The manifest goes last: a session treats the bundle as present once it exists.
+        items.append((_manifest_key(job_id), manifest.model_dump_json(indent=2).encode()))
+        put_all(storage, items, message=f"gpurelay {job_id} bundle")
     return manifest
 
 

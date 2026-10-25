@@ -25,7 +25,7 @@ from gpurelay.models import utcnow
 from gpurelay.pathutil import safe_join
 from gpurelay.runtime.blobs import BlobCache
 from gpurelay.runtime.checkpoint import load_latest_checkpoint
-from gpurelay.storage.base import Storage
+from gpurelay.storage.base import Storage, put_all
 from gpurelay.storage.layout import final_prefix, segment_env_key, segment_log_key
 
 
@@ -120,7 +120,9 @@ def assemble(
             _write_output_notebook(storage, job_id, runtime["cells"], blobs, out_dir)
 
     if upload:
-        for path in sorted(p for p in out_dir.rglob("*") if p.is_file()):
-            rel = path.relative_to(out_dir).as_posix()
-            storage.put_file(path, f"{final_prefix(job_id)}/{rel}")
+        items: list[tuple[str, Path | bytes]] = [
+            (f"{final_prefix(job_id)}/{path.relative_to(out_dir).as_posix()}", path)
+            for path in sorted(p for p in out_dir.rglob("*") if p.is_file())
+        ]
+        put_all(storage, items, message=f"gpurelay {job_id} outputs")
     return result

@@ -151,3 +151,29 @@ def test_state_backup_uploads_only_changes(tmp_path: Path) -> None:
     # A restarted server compares with the stored copy before its first upload.
     assert StateBackup(store, home)() is False and len(store.commits) == 2
     assert store.exists(STATE_KEY)
+
+
+def test_a_bundle_is_one_commit(tmp_path: Path) -> None:
+    from gpurelay.bundle.packager import upload_bundle
+
+    store = CommitCounter(tmp_path / "store")
+    script = tmp_path / "train.py"
+    script.write_text("print('hi')\n", encoding="utf-8")
+    req = tmp_path / "requirements.txt"
+    req.write_text("numpy\n", encoding="utf-8")
+    upload_bundle(store, "job-1", script, requirements=req, include_wheel=False)
+    assert store.commits == ["batch gpurelay job-1 bundle"]
+
+
+def test_many_output_files_are_one_commit(tmp_path: Path) -> None:
+    from gpurelay.storage.base import put_all
+
+    store = CommitCounter(tmp_path / "store")
+    files = []
+    for i in range(50):
+        f = tmp_path / f"sample_{i}.png"
+        f.write_bytes(bytes([i]))
+        files.append((f"jobs/job-1/final/files/{f.name}", f))
+    put_all(store, [*files, ("jobs/job-1/final/report.json", b"{}")], message="outputs")
+    assert store.commits == ["batch outputs"]
+    assert len(store.list("jobs/job-1/final/")) == 51
