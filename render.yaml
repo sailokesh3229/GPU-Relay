@@ -22,6 +22,10 @@ services:
       # Anyone with the URL can look (read-only); only the owner can make changes.
       - key: GPURELAY_PUBLIC_VIEW
         value: "1"
+      # Render runs one instance: a new deploy takes the controller role at once (the old
+      # controller sees the takeover within one tick and stops) instead of waiting 15 min.
+      - key: GPURELAY_TAKEOVER
+        value: "1"
       # Signs login cookies; a stable value keeps people logged in across restarts and sleep.
       - key: GPURELAY_SESSION_KEY
         generateValue: true

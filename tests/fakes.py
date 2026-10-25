@@ -29,6 +29,7 @@ class FakeBackend:
         self.ready = ready
         self.caps = BackendCaps(gpu_types=[], max_session_s=3600, max_concurrent=4)
         self.launched: list[tuple[str, str, float]] = []  # (job id, segment id, deadline_s)
+        self.launch_error: Exception | None = None  # raised by launch() while set
         self.cancelled: list[str] = []
         self._codes: dict[str, int | None] = {}
 
@@ -43,6 +44,8 @@ class FakeBackend:
     def launch(self, job: Any, segment: Any, deadline_s: float) -> Any:
         from gpurelay.models import LaunchHandle
 
+        if self.launch_error is not None:
+            raise self.launch_error
         self.launched.append((job.id, segment.id, deadline_s))
         self._codes[segment.id] = None
         return LaunchHandle(backend=self.name, handle_id=segment.id, extra={"job": job.id})

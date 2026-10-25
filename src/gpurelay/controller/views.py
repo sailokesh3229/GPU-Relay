@@ -55,6 +55,7 @@ class BackendRow:
     unit: str = "h"  # what the platform grants: hours, usd or credits (P11)
     cost_per_h: float = 1.0
     speed: float = 1.0
+    hold: str | None = None  # why the platform is not used right now (launch refused)
 
 
 def _fmt_time(value: datetime | None) -> str:
@@ -141,6 +142,7 @@ def backend_rows(controller: Controller, now: float) -> list[BackendRow]:
                 unit=slot.budget.unit,
                 cost_per_h=slot.budget.cost_per_h,
                 speed=slot.speed,
+                hold=controller.hold_reason(slot.name, now),
             )
         )
     return rows

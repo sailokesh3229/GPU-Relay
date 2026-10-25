@@ -283,6 +283,7 @@ def create_app(
                     "unit": b.unit,
                     "cost_per_h": b.cost_per_h,
                     "speed": b.speed,
+                    "hold": b.hold,
                     "daily_h": daily_usage(ctx.db.ledger(b.name), now),
                 }
                 for b in backend_rows(controller, now)

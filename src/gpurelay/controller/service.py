@@ -162,11 +162,14 @@ def resolve_job(ctx: Context, ref: str) -> Job:
 
 
 def request(ctx: Context, ref: str, action: str) -> Job:
-    """Record a pause/resume/cancel request for the controller to apply."""
+    """Record a pause/resume/cancel request for the controller to apply. Resume also retries a
+    job that failed for platform reasons (``failed_infra``), from its last checkpoint; a job
+    whose own code failed stays failed."""
     job = resolve_job(ctx, ref)
-    if job.state.is_terminal:
+    retry = action == "resume" and job.state is JobState.FAILED_INFRA
+    if job.state.is_terminal and not retry:
         raise ServiceError(f"{job.id} is {job.state.value}")
-    if action == "resume" and job.state is not JobState.PAUSED:
+    if action == "resume" and job.state not in (JobState.PAUSED, JobState.FAILED_INFRA):
         raise ServiceError(f"{job.id} is not paused ({job.state.value})")
     job = job.model_copy(update={"requested": action})
     ctx.db.put_job(job)

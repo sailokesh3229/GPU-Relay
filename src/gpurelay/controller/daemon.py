@@ -51,6 +51,24 @@ from gpurelay.runtime.parallel import write_assignment
 from gpurelay.storage.base import Storage
 from gpurelay.storage.layout import control_key, status_key, worker_status_key
 
+# A platform that refuses to start a session is not used for a while. Account problems (a
+# missing payment method, a revoked token) need the owner, so they wait longer.
+LAUNCH_HOLD_S = 30 * 60.0
+ACCOUNT_HOLD_S = 6 * 3600.0
+ACCOUNT_PROBLEMS = (
+    "payment",
+    "billing",
+    "unauthorized",
+    "forbidden",
+    "401",
+    "403",
+    "token",
+    "credential",
+    "permission",
+    "suspended",
+    "verify",
+)
+
 log = logging.getLogger(__name__)
 
 SCHEDULABLE = (JobState.QUEUED, JobState.WAITING_FOR_QUOTA, JobState.AWAITING_USER)
@@ -112,6 +130,10 @@ class Controller:
         self._beats: dict[str, tuple[datetime, float]] = {}
         # Cross-machine single-controller lease (set by `gpurelay up`; Phase 9 item 6).
         self.lease: ControllerLease | None = None
+        # backend -> (hold until, reason): a platform that could not start a session is not
+        # used for a while, so jobs go elsewhere instead of failing (e.g. Modal without a
+        # payment method on file).
+        self.holds: dict[str, tuple[float, str]] = {}
 
     # ------------------------------------------------------------------ loop
 
@@ -244,6 +266,9 @@ class Controller:
             elif job.requested == "resume":
                 if job.state is JobState.PAUSED:
                     self._set_job(job, JobState.QUEUED, now, "resumed by user", requested=None)
+                elif job.state is JobState.FAILED_INFRA:  # retry from the last checkpoint
+                    self._set_job(job, JobState.QUEUED, now, "retried by user", requested=None,
+                                  infra_failures=0)  # fmt: skip
                 else:
                     self.db.put_job(job.model_copy(update={"requested": None}))
 
@@ -454,6 +479,32 @@ class Controller:
                 "completed", f"job {job.name} completed", f"{len(result.segments)} segment(s)"
             )
 
+    # ------------------------------------------------------------------ platform holds
+
+    def hold_reason(self, backend: str, now: float) -> str | None:
+        """Why ``backend`` is on hold, or None when it may be used."""
+        hold = self.holds.get(backend)
+        if hold is None or now >= hold[0]:
+            self.holds.pop(backend, None)
+            return None
+        return hold[1]
+
+    def _hold(self, backend: str, reason: str, now: float) -> None:
+        account = any(word in reason.lower() for word in ACCOUNT_PROBLEMS)
+        seconds = ACCOUNT_HOLD_S if account else LAUNCH_HOLD_S
+        first = self.hold_reason(backend, now) is None
+        self.holds[backend] = (now + seconds, reason)
+        log.warning("%s could not start a session; on hold for %.0f min: %s",
+                    backend, seconds / 60, reason)  # fmt: skip
+        self.db.add_event("backend_hold", f"{backend} on hold: {reason}", now=now)
+        if first:
+            self.notifier.notify(
+                "controller_error", f"{backend} could not start a session",
+                f"{reason} GPU Relay uses other platforms for the next "
+                f"{seconds / 3600:.1f} h." if seconds >= 3600 else
+                f"{reason} GPU Relay retries it in {seconds / 60:.0f} min.",
+            )  # fmt: skip
+
     # ------------------------------------------------------------------ 4. scheduling
 
     def backend_views(self, now: float) -> list[BackendView]:
@@ -464,6 +515,8 @@ class Controller:
             try:
                 ready = slot.backend.check_ready().ready
             except Exception:
+                ready = False
+            if self.hold_reason(slot.name, now) is not None:
                 ready = False
             views.append(
                 BackendView(
@@ -541,7 +594,15 @@ class Controller:
             self.db.put_job(job.model_copy(update={"message": str(exc)}))
             return
         except Exception as exc:
-            self._finish(seg, "failed_infra", None, now, f"launch failed: {exc}")
+            # The session never started: not the job's fault. Put the platform on hold and
+            # let the job go elsewhere, instead of spending its retries here.
+            reason = str(exc).strip() or type(exc).__name__
+            self._close_segment(seg, "cancelled", None, now, f"not launched: {reason}")
+            self._hold(slot.name, reason, now)
+            self.db.put_job(job.model_copy(update={
+                "message": f"{slot.name} could not start a session ({reason}); "
+                           "trying other platforms",
+            }))  # fmt: skip
             return
         manual = not slot.automated
         seg = seg.model_copy(

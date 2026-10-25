@@ -372,7 +372,8 @@ function budgetCards() {
     }
     return el("a", {class: "bcard", href: "#/budget"},
       el("span", {class: "top"}, el("span", {text: backendLabel(b.name, b.gpu)}), el("span", {text: b.budget_h ? period(b) : b.automated ? "unlimited" : "manual"})),
-      big, bar, el("span", {class: "small muted", text: foot}));
+      big, bar, el("span", {class: "small muted", text: foot}),
+      b.hold ? el("span", {class: "small", style: "color:var(--bad)", text: `On hold: ${b.hold}`}) : null);
   }));
 }
 
@@ -389,6 +390,7 @@ async function jobView(id) {
   const actions = owner() ? el("div", {style: "display:flex;gap:8px;flex-wrap:wrap"},
     !job.terminal && job.state !== "paused" ? actionButton(job, "pause", "Pause at next safe point") : null,
     job.state === "paused" ? actionButton(job, "resume", "Resume", true) : null,
+    job.state === "failed_infra" ? actionButton(job, "resume", "Retry from last checkpoint", true) : null,
     !job.terminal ? actionButton(job, "cancel", "Cancel job", false, true) : null) : null;
   const where = live ? `${STATES[job.state] ? STATES[job.state][0] : job.state} on ${backendLabel(live.backend, live.gpu)}` : null;
   const p = pct(job);
@@ -618,7 +620,9 @@ function budgetView() {
         el("input", {id: `fix-${b.name}`, type: "text", required: true,
           placeholder: b.unit === "usd" ? "Dollars used, e.g. 12.40" : b.unit === "credits" ? "Credits used, e.g. 4.5" : "Hours used, e.g. 12.5h"})),
       el("button", {type: "submit", class: "btn"}, "Correct"), el("span", {class: "msg", role: "status"})) : null;
-    return el("section", {class: "card", "aria-label": backendLabel(b.name)}, title, nums, chart, correct);
+    const hold = b.hold ? el("div", {class: "banner bad", role: "note"}, el("div", {}, el("strong", {text: "On hold"}),
+      el("span", {text: `${backendLabel(b.name)} could not start a session: ${b.hold} Jobs use other platforms meanwhile.`}))) : null;
+    return el("section", {class: "card", "aria-label": backendLabel(b.name)}, title, hold, nums, chart, correct);
   });
   render(el("header", {class: "page"}, el("div", {}, el("h1", {text: "GPU budget"}),
     el("p", {class: "muted", text: "Free tiers limit GPU hours. GPU Relay plans jobs around what is left and never starts a session it cannot finish safely."}))),

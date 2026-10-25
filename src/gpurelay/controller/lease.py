@@ -106,12 +106,14 @@ class ControllerLease:
         return self.clock() - renewed > self.stale_s
 
     def renew(self, *, force: bool = False) -> None:
-        """Renew if due. Raises :class:`LeaseLostError` if another controller took over."""
-        if not force and self.clock() - self._renewed < self.renew_s:
-            return
+        """Check the lease every call (a read) and rewrite it when due (a commit). Raises
+        :class:`LeaseLostError` as soon as another controller took over, so two controllers
+        never act together for longer than one tick (e.g. during a server redeploy)."""
         current = self._read()
         if current is not None and current.get("holder") != self.holder:
             raise LeaseLostError(f"controller lease taken over by {current.get('holder')}")
+        if not force and self.clock() - self._renewed < self.renew_s:
+            return
         self._write()
 
     def release(self) -> None:

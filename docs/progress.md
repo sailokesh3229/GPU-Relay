@@ -1126,3 +1126,23 @@ point.
   all 12 files,** including `test_adversarial[tight_loop]` (9/9 adversarial) and
   auto-instrumentation (14/14). This confirms the earlier `tight_loop` failures were the
   laptop's load, not a regression. 492 unit tests pass; ruff and mypy are clean.
+- **Live Modal test (15:04-15:20 UTC):** the server took over the controller role and
+  scheduled the job on **Modal first**, as P11 intends (expiring credits). Modal refused:
+  "Please add a payment method to use T4 GPU sandboxes." **Modal's free credit does not cover
+  GPU sandboxes until a payment method is on the account.** Two GPU Relay weaknesses showed
+  up, both fixed:
+  1. **A refused launch failed the whole job after 3 tries,** although Kaggle was free. Now
+     a launch that never started is not the job's fault. The job goes back to the queue, and
+     the platform is put **on hold**: 30 minutes, or 6 hours for account problems (payment,
+     token, permission). Jobs use other platforms meanwhile. The owner is notified once, and
+     the website shows "On hold: <reason>" on the budget cards. Tests:
+     `test_a_platform_that_cannot_start_a_session_is_held_and_the_job_goes_elsewhere` and
+     `test_an_ordinary_launch_failure_holds_the_platform_briefly`.
+  2. **After a redeploy that did not release the lease, the new server waited 15 minutes**
+     before running anything. Now every tick re-reads the lease (a read, not a commit), so a
+     controller that lost it stops within one tick, and Render's blueprint sets
+     `GPURELAY_TAKEOVER=1` (Render runs one instance). Test:
+     `test_a_takeover_is_noticed_on_the_next_tick_not_the_next_renewal`.
+- **Resume retries a job that failed for platform reasons** (`failed_infra`) from its last
+  checkpoint ("Retry from last checkpoint" on the job page). A job whose own code failed stays
+  failed. Test: `test_resume_retries_a_platform_failure_but_not_a_code_failure`.

@@ -95,3 +95,15 @@ def test_renew_is_rate_limited(tmp_path: Path) -> None:
     clock.now += 61
     lease.renew()
     assert json.loads(storage.get_bytes(LEASE_KEY) or b"")["seq"] == seq + 1
+
+
+def test_a_takeover_is_noticed_on_the_next_tick_not_the_next_renewal(tmp_path: Path) -> None:
+    """During a server redeploy the old and new controller overlap: the old one must stop
+    within one tick, not after up to `renew_s` of acting alongside the new one."""
+    storage, clock = LocalFSStorage(tmp_path), Clock()
+    old = _lease(storage, "old-server", clock)
+    old.acquire()
+    clock.now += 5  # renewal far from due
+    _lease(storage, "new-server", clock).acquire(takeover=True)
+    with pytest.raises(LeaseLostError, match="new-server"):
+        old.renew()

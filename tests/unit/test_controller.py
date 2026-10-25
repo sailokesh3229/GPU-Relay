@@ -465,3 +465,60 @@ def test_one_broken_segment_does_not_block_the_others(
     h.controller.tick()
     assert h.job(good.id).state in (JobState.ASSEMBLING, JobState.COMPLETED)
     assert h.job(bad.id).state is JobState.RUNNING
+
+
+def test_a_platform_that_cannot_start_a_session_is_held_and_the_job_goes_elsewhere(
+    tmp_path: Path,
+) -> None:
+    """Found live: Modal refused GPU sandboxes ("Please add a payment method"); after 3 tries
+    the job failed although Kaggle was free. A refused launch is not the job's fault."""
+    from gpurelay.controller.daemon import ACCOUNT_HOLD_S, LAUNCH_HOLD_S
+
+    h = _harness(tmp_path, {"a": (30.0, True, 1, "T4"), "b": (10.0, True, 1, "T4")})
+    h.backends["a"].launch_error = RuntimeError("Please add a payment method to use T4 GPUs.")
+    job = h.submit()
+    h.controller.tick()  # tries "a" (more budget), which refuses
+    j = h.job(job.id)
+    assert j.state is JobState.QUEUED and j.infra_failures == 0
+    assert "a could not start a session" in j.message
+    assert h.controller.hold_reason("a", h.clock()) is not None
+    assert [n.kind for n in h.notifier.sent] == ["controller_error"]
+    h.controller.tick()  # "a" is on hold: the job runs on "b"
+    assert h.job(job.id).state is JobState.RUNNING and len(h.backends["b"].launched) == 1
+    assert h.controller.holds["a"][0] == pytest.approx(h.clock() + ACCOUNT_HOLD_S, abs=60)
+    h.clock.now += ACCOUNT_HOLD_S + 1
+    assert h.controller.hold_reason("a", h.clock()) is None  # tried again later
+    assert LAUNCH_HOLD_S < ACCOUNT_HOLD_S
+
+
+def test_an_ordinary_launch_failure_holds_the_platform_briefly(tmp_path: Path) -> None:
+    from gpurelay.controller.daemon import LAUNCH_HOLD_S
+
+    h = _harness(tmp_path, {"a": (30.0, True, 1, "T4")})
+    h.backends["a"].launch_error = TimeoutError("service temporarily unavailable")
+    job = h.submit()
+    h.controller.tick()
+    hold_until, reason = h.controller.holds["a"]
+    assert hold_until == pytest.approx(h.clock() + LAUNCH_HOLD_S) and "unavailable" in reason
+    h.backends["a"].launch_error = None
+    h.clock.now += LAUNCH_HOLD_S + 1
+    h.controller.tick()
+    assert h.job(job.id).state is JobState.RUNNING
+
+
+def test_resume_retries_a_platform_failure_but_not_a_code_failure(tmp_path: Path) -> None:
+    from gpurelay.controller.service import Context, ServiceError, request
+
+    h = _harness(tmp_path, {"a": (30.0, True, 1, "T4")})
+    ctx = Context(h.controller.config, tmp_path / "home", h.db, h.storage, h.controller)
+    infra, user = h.submit("infra"), h.submit("user")
+    h.db.put_job(h.job(infra.id).model_copy(update={"state": JobState.FAILED_INFRA,
+                                                    "infra_failures": 4}))  # fmt: skip
+    h.db.put_job(h.job(user.id).model_copy(update={"state": JobState.FAILED_USER}))
+    request(ctx, infra.id, "resume")
+    with pytest.raises(ServiceError, match="failed_user"):
+        request(ctx, user.id, "resume")
+    h.controller.tick()
+    retried = h.job(infra.id)
+    assert retried.state in (JobState.QUEUED, JobState.RUNNING) and retried.infra_failures == 0
+    assert h.job(user.id).state is JobState.FAILED_USER
