@@ -52,6 +52,7 @@ def build_backends(config: Config, storage: Storage, sessions_root: Path) -> dic
                 max_session_s=local.max_session_s,
                 gpu_label=gpu,
                 python_resolver=(lambda: runtime_python(home)) if packaged else None,
+                install_requirements=packaged,
                 ready_check=(
                     (
                         lambda: (

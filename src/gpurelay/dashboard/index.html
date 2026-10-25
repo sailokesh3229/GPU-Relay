@@ -634,7 +634,7 @@ async function settingsView() {
     el("td", {text: names[b.name] || b.name}),
     el("td", {}, b.enabled ? el("span", {class: "ok", text: "On"}) : el("span", {class: "muted", text: "Off"})),
     el("td", {text: b.name === "kaggle" ? [b.account, b.gpu && b.gpu.replace("NvidiaTesla", "Tesla "), b.weekly_h && `${b.weekly_h} h/week`].filter(Boolean).join(" · ") :
-      b.name === "colab" ? "you press Run all; never automated" : b.name === "lightning" ? "off until its terms are reviewed"
+      b.name === "colab" ? "you press Run all; never automated" : b.name === "lightning" ? "paused (platform closed after a security incident)"
       : b.name === "modal" ? `${b.gpu} · $${b.monthly_usd} credit per month` : s.server ? "off on the server" : "runs jobs on this computer"}),
     el("td", {}, b.name === "kaggle" ? yes(b.credentials, "token found", "no token") : el("span", {class: "muted", text: "–"}))));
   render(
@@ -808,7 +808,7 @@ function wizMore(st) {
     el("div", {class: "grid2"}, field("mdid", "Modal token id", tid), field("mdsec", "Modal token secret", tsec), field("mdgpu", "GPU", gpu)),
     el("label", {class: "check", for: "mdterms"}, terms, "I read Modal's terms of service and accept them for this use"),
     el("div", {class: "note"}, el("strong", {text: "Lightning AI"}),
-      el("span", {text: "Built in but off until its terms are reviewed (its free allowance is unclear). Turn it on later in config.toml with terms_reviewed = true."})),
+      el("span", {text: "Paused: Lightning closed its platform to all users after a security incident in October 2026. GPU Relay keeps it off."})),
     el("div", {class: "actions"}, go, el("button", {type: "button", class: "btn", onclick: () => wizGo("colab")}, "Skip"))];
 }
 function wizColab(st) {

@@ -184,6 +184,10 @@ class SimulatedSettings(_Section):
 class LightningSettings(_Section):
     """Lightning AI backend (spec §10.6), through the official ``lightning_sdk`` only.
 
+    Paused (2026-10-25): after a security incident on 15 October 2026 Lightning revoked all
+    user access and closed sign-ups while it investigates (lightning.ai/security-incident).
+    Keep it off; if it reopens, use a separate fine-grained Hugging Face token for it.
+
     Gated by hard rule 4: enabling it also requires ``terms_reviewed = true``, i.e. the owner
     read the terms-of-service findings in docs/verify.md (#10) and accepts them.
     """

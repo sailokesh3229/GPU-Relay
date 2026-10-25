@@ -92,3 +92,30 @@ def test_local_backend_resolves_its_interpreter_on_first_launch(tmp_path: Path) 
     status = backend.check_ready()
     assert not status.ready and status.reason == "install Python"
     assert resolved == []  # nothing is installed until a job really runs here
+
+
+def test_packaged_local_runs_install_the_jobs_requirements(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Cloud sessions install requirements.txt; the packaged app's own environment must too.
+    A source install leaves the user's environment alone."""
+    import gpurelay.backends.local as local_mod
+    from gpurelay.backends.local import LocalBackend
+    from gpurelay.models import Job, JobKind, Segment
+
+    seen: list[list[str]] = []
+
+    class Proc:
+        pid = 1
+
+    def fake_popen(cmd: list[str], **kw: Any) -> Proc:
+        seen.append(cmd)
+        return Proc()
+
+    monkeypatch.setattr(local_mod.subprocess, "Popen", fake_popen)
+    job = Job(name="j", kind=JobKind.SCRIPT, entry="j.py")
+    for packaged in (True, False):
+        backend = LocalBackend(LocalFSStorage(tmp_path / "s"), tmp_path / f"r{packaged}",
+                               python=sys.executable, install_requirements=packaged)  # fmt: skip
+        backend.launch(job, Segment(job_id=job.id, index=0, backend="local"), 60)
+        assert ("--install-requirements" in seen[-1]) is packaged

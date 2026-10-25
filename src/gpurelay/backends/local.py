@@ -51,6 +51,7 @@ class LocalBackend:
         env: dict[str, str] | None = None,
         python_resolver: Callable[[], str] | None = None,
         ready_check: Callable[[], str | None] | None = None,
+        install_requirements: bool = False,
     ) -> None:
         self.name = name
         self.storage = storage
@@ -62,6 +63,9 @@ class LocalBackend:
         # The packaged app resolves the interpreter on first use (backends/local_env.py).
         self.python_resolver = python_resolver
         self.ready_check = ready_check  # returns why jobs cannot run here, or None
+        # Install the job's requirements.txt in each segment, as cloud sessions do (the
+        # packaged app's own environment; a source install uses the user's environment).
+        self.install_requirements = install_requirements
         self.extra_env = dict(env or {})
         self._procs: dict[str, subprocess.Popen[bytes]] = {}
         self._consoles: dict[str, IO[bytes]] = {}
@@ -114,6 +118,7 @@ class LocalBackend:
             repr(deadline),
             "--settings",
             json.dumps(self.settings.model_dump(mode="json")),
+            *(["--install-requirements"] if self.install_requirements else []),
         ]
         env = dict(os.environ)
         # Deterministic str hashing across segments (set/dict-of-str iteration order).

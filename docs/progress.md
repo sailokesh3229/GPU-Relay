@@ -1104,3 +1104,25 @@ point.
   in between. The same test fails identically on the hardening commit 6cbe21d, which passed
   it 9/9 when written, so this is the laptop's current load (a browser playing video, 2 GB
   free), not a regression. Rerun it on a quiet machine.
+
+## After 1.0.0: open items (2026-10-25)
+
+- **Lightning AI paused (P13):** its sign-up page redirects to a security notice (checked in
+  the browser). On 15 October 2026 Lightning found unauthorized access to customer
+  credentials and revoked all user access on 16 October; the platform stays closed while an
+  outside firm investigates. The backend stays off, and the app and README say why. If it
+  reopens, use a separate fine-grained Hugging Face token for its sessions.
+- **Modal on the server:**
+  - the server image now includes Modal's SDK (`.[kaggle,dashboard,modal]`);
+  - `GPURELAY_MODAL=1` in the host's environment turns Modal on, and is the owner's
+    confirmation of its terms; `GPURELAY_MODAL_GPU` picks the GPU;
+  - the token comes from `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`;
+  - the switch decides both ways, so a restored backup cannot keep Modal on.
+  - Test: `test_the_server_turns_modal_on_only_with_its_switch`.
+- **Local runs from the packaged app install the job's `requirements.txt`** in GPU Relay's
+  own environment, as cloud sessions do. A source install leaves the user's environment
+  alone. Test: `test_packaged_local_runs_install_the_jobs_requirements`.
+- **Full integration suite on a quiet laptop (2026-10-25, 19:55-20:11): 55/55 pass across
+  all 12 files,** including `test_adversarial[tight_loop]` (9/9 adversarial) and
+  auto-instrumentation (14/14). This confirms the earlier `tight_loop` failures were the
+  laptop's load, not a regression. 492 unit tests pass; ruff and mypy are clean.

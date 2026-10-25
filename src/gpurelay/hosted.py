@@ -24,7 +24,7 @@ import tarfile
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from gpurelay.config import Config, load_config, save_config
@@ -40,6 +40,8 @@ STATE_KEY = "controller/state.tar.gz"
 ENV_HF_REPO = "GPURELAY_HF_REPO"
 ENV_BACKUP_S = "GPURELAY_BACKUP_S"
 ENV_TAKEOVER = "GPURELAY_TAKEOVER"
+ENV_MODAL = "GPURELAY_MODAL"
+ENV_MODAL_GPU = "GPURELAY_MODAL_GPU"
 BACKUP_S = 600.0
 RESTART_DELAYS_S = (10.0, 30.0, 60.0, 120.0, 300.0)
 STOP_FILENAME = "controller.stop"  # in the home: asks `gpurelay up` to stop gracefully
@@ -108,11 +110,25 @@ def backup_state(storage: Storage, home: Path) -> bool:
     return StateBackup(storage, home)(force=True)
 
 
-def hosted_config(config: Config) -> Config:
-    """The server's own settings: no jobs on its CPU and no desktop to notify."""
-    backends = config.backends.model_copy(
-        update={"local": config.backends.local.model_copy(update={"enabled": False})}
-    )
+def hosted_config(config: Config, env: Mapping[str, str] | None = None) -> Config:
+    """The server's own settings: no jobs on its CPU and no desktop to notify.
+
+    Platforms are switched on with the host's environment (there is no setup wizard on a
+    server): ``GPURELAY_MODAL=1`` turns Modal on, and setting it is the owner's
+    confirmation that they read Modal's terms; its token comes from ``MODAL_TOKEN_ID`` /
+    ``MODAL_TOKEN_SECRET``. Without it Modal is off. ``GPURELAY_MODAL_GPU`` picks the GPU."""
+    env = os.environ if env is None else env
+    update: dict[str, object] = {
+        "local": config.backends.local.model_copy(update={"enabled": False})
+    }
+    if env.get(ENV_MODAL, "").strip().lower() in ("1", "true", "yes"):
+        update["modal"] = config.backends.modal.model_copy(update={
+            "enabled": True, "terms_reviewed": True,
+            "gpu": env.get(ENV_MODAL_GPU, "").strip() or config.backends.modal.gpu,
+        })  # fmt: skip
+    else:  # the switch decides both ways (a restored backup may say otherwise)
+        update["modal"] = config.backends.modal.model_copy(update={"enabled": False})
+    backends = config.backends.model_copy(update=update)
     notify = config.notify.model_copy(update={"desktop": False})
     return config.model_copy(update={"backends": backends, "notify": notify})
 

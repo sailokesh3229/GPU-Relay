@@ -31,7 +31,7 @@ anything. A free server: the first visit after a quiet spell takes about a minut
 | Modal | $30 of compute a month (about 50 T4-hours) | automatic, through Modal's official SDK (you confirm its terms first) |
 | Your own NVIDIA GPU | unlimited | automatic; detected with `nvidia-smi` |
 | Google Colab | varies, not guaranteed | manual: GPU Relay prepares a resume notebook, you press Run all |
-| Lightning AI | some credits a month | built in, off until you review its terms |
+| Lightning AI | some credits a month | paused: Lightning closed its platform to all users after a security incident (Oct 2026) |
 | Paperspace | free notebooks are public | not used: GPU Relay keeps your code and data private |
 
 ## Three ways to use it
@@ -49,7 +49,9 @@ Download `GPU-Relay-<version>-windows-x64.zip` from the
   Submit screen with a resumability check. Closing the window keeps GPU Relay running in the
   tray; it notifies you when a job finishes or needs you on Colab.
 - Running jobs on your own computer from the packaged app needs Python 3.10+ installed
-  (python.org); GPU Relay prepares its own environment on first use.
+  (python.org); GPU Relay prepares its own environment on first use and installs each job's
+  `requirements.txt` there, as cloud sessions do. Nothing else is installed on your computer:
+  cloud jobs run on the platforms, with their libraries installed inside each session.
 
 ### 2. Always-on website (server)
 
@@ -62,7 +64,8 @@ while your laptop is off. The repo includes a one-click setup for Render's free 
    `GPURELAY_OWNER_PASSWORD` (12+ characters).
 
 Anyone with the URL can look (`GPURELAY_PUBLIC_VIEW=1`); the owner logs in to submit, pause
-or cancel. The server's disk is wiped when it restarts or sleeps, so it backs up its job list
+or cancel. To add Modal on the server, set `GPURELAY_MODAL=1` (your confirmation of Modal's
+terms), `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in the host's environment settings. The server's disk is wiped when it restarts or sleeps, so it backs up its job list
 to your private storage repo and restores it on start. The desktop app can show your server
 ("My server" in its setup) and notify you about its jobs.
 

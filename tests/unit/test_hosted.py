@@ -258,3 +258,17 @@ def test_stop_file_ends_a_sleeping_process_like_ctrl_c(tmp_path: Path) -> None:
     assert proc.returncode == 0 and "stopped gracefully" in out
     assert time.monotonic() - started < 5
     assert not (tmp_path / STOP_FILENAME).exists()
+
+
+def test_the_server_turns_modal_on_only_with_its_switch() -> None:
+    from gpurelay.config import ModalSettings
+
+    cfg = Config()
+    on = hosted_config(cfg, {"GPURELAY_MODAL": "1", "GPURELAY_MODAL_GPU": "L4"})
+    assert on.backends.modal.enabled and on.backends.modal.terms_reviewed
+    assert on.backends.modal.gpu == "L4"
+    restored = cfg.model_copy(deep=True)
+    restored.backends.modal = ModalSettings(enabled=True, terms_reviewed=True)
+    off = hosted_config(restored, {})  # switch removed: a restored backup cannot keep it on
+    assert not off.backends.modal.enabled
+    assert not hosted_config(cfg, {"GPURELAY_MODAL": "no"}).backends.modal.enabled
