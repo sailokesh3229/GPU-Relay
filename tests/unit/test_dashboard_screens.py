@@ -216,3 +216,15 @@ def test_budget_correction_in_the_platforms_own_unit(tmp_path: Path) -> None:
     assert entry.used_h == pytest.approx(10.0)
     bad = client.post("/api/quota/kaggle", json={"used_amount": -1}, headers=ACT)
     assert bad.status_code == 400
+
+
+def test_page_css_keeps_the_job_table_a_grid(tmp_path: Path) -> None:
+    """Regression: a generic `.row{display:flex}` rule (wizard buttons) overrode the job
+    table's `a.row` grid, collapsing its columns on the live site."""
+    import re
+
+    client, _ = _setup(tmp_path)
+    page = client.get("/").text
+    css = page[page.index("<style>") : page.index("</style>")]
+    assert re.search(r"(^|[\s}])\.row\{", css) is None  # only `a.row` may style job rows
+    assert ".grid{display:grid" in css and 'class: "grid row"' in page

@@ -142,7 +142,7 @@ ol.steps .num{font-weight:700}
 .choice span{display:flex;flex-direction:column;gap:2px}
 .choice small{color:var(--muted);font-size:13px}
 .note{padding:12px 14px;border-radius:10px;background:var(--bg);border:1px solid var(--line);font-size:13px;display:flex;flex-direction:column;gap:4px}
-.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
 ol.howto{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
 .empty{padding:36px 18px;text-align:center;color:var(--muted)}
@@ -676,7 +676,7 @@ async function desktopCard() {
     }}), "Show GPU Relay in the Start menu") : null,
     el("p", {class: "small muted", text: d.update.available ? `Version ${d.update.current}. Version ${d.update.latest} is available on GitHub (Releases).`
       : d.update.latest ? `Version ${d.update.current}, the latest.` : `Version ${d.update.current}.`}),
-    el("div", {class: "row"}, el("a", {class: "btn", href: "#/setup"}, "Run setup again"),
+    el("div", {class: "actions"}, el("a", {class: "btn", href: "#/setup"}, "Run setup again"),
       el("button", {type: "button", class: "btn", onclick: async () => {
         const msg = document.getElementById("desk-msg");
         try { const r = await post("api/desktop/remove"); msg.className = "msg good";
@@ -731,7 +731,7 @@ function wizWhere(st) {
     choice("where", "local", st.mode !== "server", "This computer", "Simple, nothing else to host. Jobs relay while this computer is on (closing the window keeps it running in the tray)."),
     choice("where", "server", st.mode === "server", "My server", "An always-on server you deployed with gpurelay serve (for example on Render). This app opens it and notifies you about your jobs."),
     field("srv", "Server address (for My server)", url),
-    el("div", {class: "row"}, go)];
+    el("div", {class: "actions"}, go)];
 }
 function wizStorage(st) {
   const hasToken = st.storage.token;
@@ -756,7 +756,7 @@ function wizStorage(st) {
       field("hftok", "Hugging Face access token (write)", token,
         el("span", {class: "small muted", text: "Create one on huggingface.co under Settings > Access Tokens. Saved in Windows Credential Manager; never written to config files, notebooks or logs."})),
       field("hfrepo", "Storage repo name", repo)),
-    el("div", {class: "row"}, go)];
+    el("div", {class: "actions"}, go)];
 }
 function wizKaggle(st) {
   const k = st.kaggle;
@@ -784,7 +784,7 @@ function wizKaggle(st) {
         el("span", {class: "small muted", text: "Safer: a fine-grained token that can write only to your storage repo. It is kept in a private Kaggle dataset that only your sessions read."})),
       field("kgacc", "GPU", gpu),
       field("kghrs", "Weekly GPU hours", hours)),
-    el("div", {class: "row"}, go, el("button", {type: "button", class: "btn", onclick: () => wizGo("more")}, "Skip"))];
+    el("div", {class: "actions"}, go, el("button", {type: "button", class: "btn", onclick: () => wizGo("more")}, "Skip"))];
 }
 function wizMore(st) {
   const m = st.modal;
@@ -809,7 +809,7 @@ function wizMore(st) {
     el("label", {class: "check", for: "mdterms"}, terms, "I read Modal's terms of service and accept them for this use"),
     el("div", {class: "note"}, el("strong", {text: "Lightning AI"}),
       el("span", {text: "Built in but off until its terms are reviewed (its free allowance is unclear). Turn it on later in config.toml with terms_reviewed = true."})),
-    el("div", {class: "row"}, go, el("button", {type: "button", class: "btn", onclick: () => wizGo("colab")}, "Skip"))];
+    el("div", {class: "actions"}, go, el("button", {type: "button", class: "btn", onclick: () => wizGo("colab")}, "Skip"))];
 }
 function wizColab(st) {
   const on = el("input", {type: "checkbox", id: "colab", checked: st.colab.enabled || !st.kaggle.enabled});
@@ -821,7 +821,7 @@ function wizColab(st) {
     el("label", {class: "check", for: "colab"}, on, "Ask me to use Colab when Kaggle can't continue"),
     el("div", {class: "note"}, el("strong", {text: "One-time step in Colab"}),
       el("span", {text: "Add your Hugging Face token as a Colab secret (the key icon) named GPURELAY_HF_TOKEN and allow notebook access."})),
-    el("div", {class: "row"}, go)];
+    el("div", {class: "actions"}, go)];
 }
 function wizDone(st) {
   const auto = el("input", {type: "checkbox", id: "auto", checked: st.autostart});
@@ -843,7 +843,7 @@ function wizDone(st) {
       el("li", {text: `Colab: ${st.colab.enabled ? "ask me when needed" : "off"}`})),
     ready ? null : el("p", {class: "msg err", text: "Choose where checkpoints live first (step 2)."}),
     el("label", {class: "check", for: "auto"}, auto, "Start GPU Relay in the tray when I sign in to Windows"),
-    el("div", {class: "row"}, go)];
+    el("div", {class: "actions"}, go)];
 }
 
 // ---------------------------------------------------------------- router
