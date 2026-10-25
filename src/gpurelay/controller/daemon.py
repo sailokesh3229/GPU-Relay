@@ -34,6 +34,7 @@ from gpurelay.controller.notify import Notifier
 from gpurelay.controller.quota import LiveUsage, QuotaLedger, QuotaState
 from gpurelay.controller.registry import BackendSlot
 from gpurelay.controller.scheduler import BackendView, JobView, deadline_for, plan
+from gpurelay.controller.spend import backend_spent_this_month, job_spent
 from gpurelay.errors import BackendBusyError
 from gpurelay.models import (
     BackendRunState,
@@ -532,6 +533,15 @@ class Controller:
                     next_reset=quota.next_reset,
                     budget_model=slot.budget.model.value,
                     speed=slot.speed,
+                    paid_usd_per_h=slot.paid_usd_per_h,
+                    paid_left_usd=(
+                        max(
+                            0.0,
+                            slot.paid_cap_usd - backend_spent_this_month(self.db, slot.name, now),
+                        )
+                        if slot.paid_usd_per_h
+                        else 0.0
+                    ),
                 )
             )
         return views
@@ -548,7 +558,9 @@ class Controller:
         views = []
         for job in jobs:
             gpus = [s.gpu_model for s in self.db.segments(job.id) if s.gpu_model]
-            views.append(JobView(job.id, job.priority, job.submitted_at, job.prefer_backend, gpus))
+            paid_left = max(0.0, job.max_paid_usd - job_spent(self.db, job.id, now))
+            views.append(JobView(job.id, job.priority, job.submitted_at, job.prefer_backend, gpus,
+                                 paid_left_usd=paid_left))  # fmt: skip
         decisions = plan(
             views, self.backend_views(now), min_segment_h=self.config.scheduler.min_segment_h
         )
@@ -557,7 +569,8 @@ class Controller:
             job = by_id[decision.job_id]
             if decision.action in ("launch", "await_user"):
                 assert decision.backend is not None and decision.deadline_s is not None
-                self._launch(job, self.backends[decision.backend], decision.deadline_s, now)
+                self._launch(job, self.backends[decision.backend], decision.deadline_s, now,
+                             paid=decision.paid)  # fmt: skip
             elif decision.action == "wait_quota":
                 if job.state is not JobState.WAITING_FOR_QUOTA:
                     when = decision.wait_until.isoformat() if decision.wait_until else "unknown"
@@ -571,7 +584,9 @@ class Controller:
             elif job.state is not JobState.QUEUED:  # wait_slot
                 self._set_job(job, JobState.QUEUED, now, "waiting for a free backend slot")
 
-    def _launch(self, job: Job, slot: BackendSlot, deadline_s: float, now: float) -> None:
+    def _launch(
+        self, job: Job, slot: BackendSlot, deadline_s: float, now: float, *, paid: bool = False
+    ) -> None:
         pointer = read_pointer(self.storage, job.id)
         segments = self.db.segments(job.id)
         seg = Segment(
@@ -583,6 +598,7 @@ class Controller:
             started_at=_dt(now),
             deadline_at=_dt(now) + timedelta(seconds=deadline_s),
             start_checkpoint_seq=pointer.seq if pointer else None,
+            paid_usd_per_h=slot.paid_usd_per_h if paid else None,
         )
         self.db.put_segment(seg)
         self.storage.delete(control_key(job.id))
@@ -620,10 +636,15 @@ class Controller:
                 f"continue it on {slot.name}: see `gpurelay colab {job.id}`",
             )  # fmt: skip
         else:
-            self._set_job(
-                job, JobState.RUNNING, now, f"segment {seg.index} on {slot.name}",
-                infra_failures=job.infra_failures,
-            )  # fmt: skip
+            where = f"segment {seg.index} on {slot.name}"
+            if paid:
+                where += f" (paid, ${slot.paid_usd_per_h:.2f}/h)"
+                self.notifier.notify(
+                    "paid_gpu", f"job {job.name} is using paid GPU time",
+                    f"{slot.name} at ${slot.paid_usd_per_h:.2f}/h; it stops before passing the "
+                    f"job's ${job.max_paid_usd:.2f} allowance or the platform's monthly limit.",
+                )  # fmt: skip
+            self._set_job(job, JobState.RUNNING, now, where, infra_failures=job.infra_failures)
 
     # ------------------------------------------------------------------ 4b. parallel workers
 

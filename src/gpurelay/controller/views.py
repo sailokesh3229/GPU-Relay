@@ -10,6 +10,7 @@ from rich.table import Table
 
 from gpurelay.controller.daemon import Controller
 from gpurelay.controller.estimator import BudgetLine, Estimate, estimate, fit_message
+from gpurelay.controller.spend import backend_spent_this_month, segment_cost
 from gpurelay.durations import format_duration
 from gpurelay.models import BudgetModel, Job, JobState, SegmentState
 
@@ -35,6 +36,7 @@ class JobRow:
     segments: int
     completed: int | None = None  # outermost loop progress, when known
     total: int | None = None
+    cost_usd: float = 0.0  # paid GPU time so far (P16); 0 for free runs
 
 
 @dataclass
@@ -56,6 +58,9 @@ class BackendRow:
     cost_per_h: float = 1.0
     speed: float = 1.0
     hold: str | None = None  # why the platform is not used right now (launch refused)
+    paid_usd_per_h: float | None = None  # paid GPU time after the free budget (P16)
+    paid_cap_usd: float = 0.0  # the owner's monthly limit for it
+    paid_spent_usd: float = 0.0  # this month
 
 
 def _fmt_time(value: datetime | None) -> str:
@@ -103,6 +108,7 @@ def job_rows(controller: Controller, now: float) -> list[JobRow]:
                 segments=len(segments),
                 completed=completed,
                 total=total,
+                cost_usd=sum(segment_cost(s, now) for s in segments),
             )
         )
     return rows
@@ -143,6 +149,9 @@ def backend_rows(controller: Controller, now: float) -> list[BackendRow]:
                 cost_per_h=slot.budget.cost_per_h,
                 speed=slot.speed,
                 hold=controller.hold_reason(slot.name, now),
+                paid_usd_per_h=slot.paid_usd_per_h,
+                paid_cap_usd=slot.paid_cap_usd,
+                paid_spent_usd=backend_spent_this_month(controller.db, slot.name, now),
             )
         )
     return rows

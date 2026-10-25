@@ -35,6 +35,7 @@ from gpurelay.controller.service import (
     resolve_job,
     submit_job,
 )
+from gpurelay.controller.spend import segment_cost
 from gpurelay.controller.views import JobRow, backend_rows, budget_lines, job_rows
 from gpurelay.dashboard.auth import COOKIE_NAME, OWNER, VIEWER, Auth
 from gpurelay.dashboard.desktop_api import DesktopHooks, SetupDeps, add_launch_key, desktop_router
@@ -89,6 +90,8 @@ def _job_json(row: JobRow) -> dict[str, Any]:
         "entry": job.entry,
         "prefer_backend": job.prefer_backend,
         "estimate_h": job.estimate_h,
+        "max_paid_usd": job.max_paid_usd,
+        "cost_usd": round(row.cost_usd, 4),
     }
 
 
@@ -109,6 +112,8 @@ def _segment_json(seg: Segment, now: float) -> dict[str, Any]:
         "start_checkpoint": seg.start_checkpoint_seq,
         "end_checkpoint": seg.end_checkpoint_seq,
         "message": seg.message,
+        "paid_usd_per_h": seg.paid_usd_per_h,
+        "cost_usd": round(segment_cost(seg, now), 4),
     }
 
 
@@ -284,6 +289,9 @@ def create_app(
                     "cost_per_h": b.cost_per_h,
                     "speed": b.speed,
                     "hold": b.hold,
+                    "paid_usd_per_h": b.paid_usd_per_h,
+                    "paid_cap_usd": b.paid_cap_usd,
+                    "paid_spent_usd": round(b.paid_spent_usd, 4),
                     "daily_h": daily_usage(ctx.db.ledger(b.name), now),
                 }
                 for b in backend_rows(controller, now)
@@ -414,6 +422,7 @@ def create_app(
                     priority=form.priority, requirements=saved.requirements, data=data,
                     estimate_h=estimate_h, prefer=form.prefer or None,
                     accept_restart_only=form.accept_restart_only,
+                    max_paid_usd=form.max_paid_usd,
                 )  # fmt: skip
             except GpuRelayError as exc:
                 raise FormError(str(exc)) from exc

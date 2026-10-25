@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.1.0 — 2026-10-26
+
+GPU Relay's aim is now **the lowest GPU cost, free first**: free GPU hours and free credits,
+then Colab, and paid GPU time only within limits you set (all $0 by default).
+
+- **Paid GPU time with limits** (P16):
+  - a per-job allowance (`--max-paid`, or Submit's "Paid GPUs" field; default $0);
+  - a monthly limit per platform (Modal: `GPURELAY_MODAL_PAID_CAP`; default $0);
+  - the cheapest per unit of work, and sessions end before passing either limit;
+  - costs are shown per job and per platform, and you get a notification when paid time
+    starts.
+- **Platforms that refuse to start a session** are shown as Unavailable and put on hold
+  (30 minutes; 6 hours for account problems). Jobs go elsewhere instead of failing. Found
+  live: Modal needs a payment method on the account for GPUs.
+- **"Retry from last checkpoint"** for jobs that failed for platform reasons.
+- **The server takes over at once after a redeploy** (it used to wait 15 minutes), and a
+  controller that lost its lease stops within one tick.
+- **Modal on the server:** `GPURELAY_MODAL=1`, `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`.
+- **Lightning AI paused:** its platform is closed to all users after a security incident.
+- **Local runs from the desktop app** install the job's `requirements.txt`.
+- **Fixes:**
+  - a stop request sent while the controller was starting was lost;
+  - local storage left empty folders behind deleted keys;
+  - the job table's columns collapsed (a CSS class clash).
+
 ## 1.0.0 — 2026-10-25
 
 The first complete release: relay ML jobs across free GPU tiers from a desktop app, an

@@ -84,6 +84,7 @@ def submit_job(
     prefer: str | None = None,
     accept_restart_only: bool = False,
     extra_files: Mapping[str, Path] | None = None,
+    max_paid_usd: float = 0.0,
 ) -> Job:
     if prefer is not None and prefer not in ctx.controller.backends:
         raise ServiceError(
@@ -99,6 +100,7 @@ def submit_job(
         estimate_h=estimate_h,
         prefer_backend=prefer,
         accept_restart_only=accept_restart_only,
+        max_paid_usd=max_paid_usd,
     )
     manifest = upload_bundle(
         ctx.storage, job.id, path, extra_files, requirements=requirements, data=data

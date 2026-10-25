@@ -228,3 +228,22 @@ def test_page_css_keeps_the_job_table_a_grid(tmp_path: Path) -> None:
     css = page[page.index("<style>") : page.index("</style>")]
     assert re.search(r"(^|[\s}])\.row\{", css) is None  # only `a.row` may style job rows
     assert ".grid{display:grid" in css and 'class: "grid row"' in page
+
+
+def test_paid_allowance_and_spend_are_reported(tmp_path: Path) -> None:
+    """P16: the job's paid allowance is stored; platforms report price, limit and spend."""
+    client, h = _setup(tmp_path)
+    body = {"filename": "train.py", "content": _b64(SCRIPT), "max_paid_usd": 2.5}
+    r = client.post("/api/submit", json=body, headers=ACT)
+    job = h.job(r.json()["job_id"])
+    assert job.max_paid_usd == 2.5
+    assert (
+        client.post("/api/submit", json={**body, "max_paid_usd": -1}, headers=ACT).status_code
+        == 400
+    )
+    detail = client.get(f"/api/jobs/{job.id}").json()["job"]
+    assert detail["max_paid_usd"] == 2.5 and detail["cost_usd"] == 0.0
+    slot = h.controller.backends["kaggle"]
+    slot.paid_usd_per_h, slot.paid_cap_usd = 0.59, 5.0
+    [row] = client.get("/api/overview").json()["backends"]
+    assert (row["paid_usd_per_h"], row["paid_cap_usd"], row["paid_spent_usd"]) == (0.59, 5.0, 0.0)

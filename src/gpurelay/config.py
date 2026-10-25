@@ -168,6 +168,9 @@ class SimulatedSettings(_Section):
     # Budget in another unit (P11): budget_hours is then the amount in that unit.
     budget_unit: Literal["h", "usd", "credits"] = "h"
     cost_per_hour: float = Field(default=1.0, gt=0)
+    # Paid GPU time after the free budget (tests of the paid order): price and monthly limit.
+    paid_usd_per_h: float | None = Field(default=None, gt=0)
+    monthly_paid_cap_usd: float = Field(default=0.0, ge=0)
     max_concurrent: int = Field(default=1, ge=1)
     kill_after_s: float | None = Field(default=None, gt=0)
     kill_between_s: tuple[float, float] | None = None
@@ -234,6 +237,9 @@ class ModalSettings(_Section):
     # VERIFY on modal.com/pricing: the Starter plan's monthly credit and the GPU's price.
     monthly_credit_usd: float = Field(default=30.0, ge=0)
     usd_per_hour: float = Field(default=0.59, gt=0)
+    # Paid use after the free credit: never more than this a month (0 = free credit only).
+    # Raise it only after adding credit to Modal; also set Modal's own spending limit.
+    monthly_paid_cap_usd: float = Field(default=0.0, ge=0)
     budget_model: BudgetModel = BudgetModel.MONTHLY
     image: str = "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime"
     # One sandbox lives at most 24 h; segments hand off after this long.

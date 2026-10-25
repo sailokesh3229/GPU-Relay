@@ -30,6 +30,10 @@ class BackendSlot:
     max_session_s: float
     gpu_label: str | None
     speed: float = 1.0  # relative GPU speed, T4 = 1.0 (controller/gpus.py)
+    # Paid GPU time after the free budget: USD per GPU hour (None: no paid option) and the
+    # owner's monthly limit for it (0: never pay).
+    paid_usd_per_h: float | None = None
+    paid_cap_usd: float = 0.0
 
 
 def build_backends(config: Config, storage: Storage, sessions_root: Path) -> dict[str, BackendSlot]:
@@ -102,6 +106,8 @@ def build_backends(config: Config, storage: Storage, sessions_root: Path) -> dic
             max_session_s=sim.max_session_s,
             gpu_label=sim.gpu_label,
             speed=speed_of(sim.gpu_label),
+            paid_usd_per_h=sim.paid_usd_per_h,
+            paid_cap_usd=sim.monthly_paid_cap_usd,
         )
     kaggle = config.backends.kaggle
     if kaggle.enabled:
@@ -176,6 +182,8 @@ def build_backends(config: Config, storage: Storage, sessions_root: Path) -> dic
             max_session_s=modal.max_session_s,
             gpu_label=modal.gpu,
             speed=speed_of(modal.gpu),
+            paid_usd_per_h=modal.usd_per_hour,
+            paid_cap_usd=modal.monthly_paid_cap_usd,
         )
     colab = config.backends.colab_manual
     if colab.enabled:

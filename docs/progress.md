@@ -1146,3 +1146,37 @@ point.
 - **Resume retries a job that failed for platform reasons** (`failed_infra`) from its last
   checkpoint ("Retry from last checkpoint" on the job page). A job whose own code failed stays
   failed. Test: `test_resume_retries_a_platform_failure_but_not_a_code_failure`.
+
+## Phase P16 — Lowest cost, free first (2026-10-26)
+
+The owner's decision: keep the paid platforms but treat them as $0 until credits are bought.
+GPU Relay's aim becomes the lowest GPU cost: free first, paid only within limits.
+
+- **Order of use** (`scheduler.plan`):
+  1. free hours and free credits (the P11 order);
+  2. Colab (free, manual);
+  3. **paid GPU time**, only when both the job's allowance (`Job.max_paid_usd`) and the
+     platform's monthly limit (`paid_cap_usd`) leave room for a minimum segment. The cheapest
+     per unit of work wins (price / speed), and the session deadline ends it before passing
+     either limit.
+  4. Otherwise the job waits.
+  Both limits default to $0, so nothing is ever paid.
+- **Accounting** (`controller/spend.py`): a paid segment records its price
+  (`Segment.paid_usd_per_h`), and its cost is price × time. Costs are summed per job and per
+  platform per month, shown on the job page ("$x paid" / "free") and on the budget page
+  ("Paid this month" and its limit). You get a notification when paid time starts.
+- **Where the limits are set:**
+  - the job's allowance: Submit's "Paid GPUs" field, or `gpurelay submit --max-paid`;
+  - Modal's monthly limit: `[backends.modal] monthly_paid_cap_usd`, or
+    `GPURELAY_MODAL_PAID_CAP` on the server. A missing or unclear value means $0.
+- **Unavailable platforms:** a platform on hold shows "Unavailable · $0 usable now" with the
+  reason (Modal without a payment method).
+- **Tests:** `test_paid_use.py` (6) covers:
+  - by default nothing is paid;
+  - free time comes first, then Colab before paid;
+  - cheapest per unit of work, deadlines within the limits, cost accounting;
+  - the controller launches paid time only when allowed and notifies.
+  Plus API and server-limit tests. 505 unit tests pass.
+- **Also fixed:** a stop request written while the controller was starting was deleted as a
+  "leftover" (found under full-suite load). Now only requests older than the process are
+  dropped. Test: `test_a_stop_requested_while_the_controller_starts_is_not_lost`.

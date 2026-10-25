@@ -241,16 +241,23 @@ def test_stop_file_ends_a_sleeping_process_like_ctrl_c(tmp_path: Path) -> None:
         "from pathlib import Path\n"
         "from gpurelay.hosted import watch_stop_file\n"
         "watch_stop_file(Path(sys.argv[1]), poll_s=0.1)\n"
+        "print('watching', flush=True)\n"
         "try:\n"
         "    time.sleep(60)\n"
         "except KeyboardInterrupt:\n"
         "    print('stopped gracefully'); sys.exit(0)\n"
         "sys.exit(3)\n"
     )
-    (tmp_path / STOP_FILENAME).write_text("old request")  # leftovers are ignored
+    import os
+
+    old = tmp_path / STOP_FILENAME
+    old.write_text("old request")  # a leftover from an earlier controller is ignored
+    os.utime(old, (time.time() - 60, time.time() - 60))
     proc = subprocess.Popen([sys.executable, "-c", code, str(tmp_path)],
                             stdout=subprocess.PIPE, text=True)  # fmt: skip
-    time.sleep(1.5)
+    assert proc.stdout is not None
+    assert proc.stdout.readline().strip() == "watching"  # however slow the start under load
+    time.sleep(0.5)
     assert proc.poll() is None  # the leftover did not stop it
     started = time.monotonic()
     (tmp_path / STOP_FILENAME).write_text("stop")
@@ -272,3 +279,37 @@ def test_the_server_turns_modal_on_only_with_its_switch() -> None:
     off = hosted_config(restored, {})  # switch removed: a restored backup cannot keep it on
     assert not off.backends.modal.enabled
     assert not hosted_config(cfg, {"GPURELAY_MODAL": "no"}).backends.modal.enabled
+
+
+def test_a_stop_requested_while_the_controller_starts_is_not_lost(tmp_path: Path) -> None:
+    """Found under load: the child deleted a fresh request as a "leftover" while starting."""
+    import subprocess
+    import sys
+
+    from gpurelay.hosted import STOP_FILENAME
+
+    code = (
+        "import sys, time\n"
+        "from pathlib import Path\n"
+        "from gpurelay.hosted import watch_stop_file\n"
+        "watch_stop_file(Path(sys.argv[1]), poll_s=0.1)\n"
+        "try:\n"
+        "    time.sleep(60)\n"
+        "except KeyboardInterrupt:\n"
+        "    print('stopped gracefully'); sys.exit(0)\n"
+        "sys.exit(3)\n"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", code, str(tmp_path)],
+                            stdout=subprocess.PIPE, text=True)  # fmt: skip
+    (tmp_path / STOP_FILENAME).write_text("stop")  # clicked Stop right after start
+    out, _ = proc.communicate(timeout=30)
+    assert proc.returncode == 0 and "stopped gracefully" in out
+
+
+def test_the_servers_paid_limit_is_zero_unless_clearly_set() -> None:
+    cfg = Config()
+    on = {"GPURELAY_MODAL": "1"}
+    assert hosted_config(cfg, on).backends.modal.monthly_paid_cap_usd == 0.0
+    for raw, cap in [("$5", 5.0), ("2.5", 2.5), ("-3", 0.0), ("lots", 0.0), ("", 0.0)]:
+        got = hosted_config(cfg, {**on, "GPURELAY_MODAL_PAID_CAP": raw}).backends.modal
+        assert got.monthly_paid_cap_usd == cap, raw

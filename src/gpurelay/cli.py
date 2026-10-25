@@ -328,6 +328,16 @@ def submit(
         bool,
         typer.Option("--accept-restart-only", help="Allow blocks that can only restart."),
     ] = False,
+    max_paid: Annotated[
+        float,
+        typer.Option(
+            "--max-paid",
+            min=0,
+            help="USD of paid GPU time this job may use after "
+            "free GPUs run out (default 0: free only). Platforms also need a monthly "
+            "paid limit above 0.",
+        ),
+    ] = 0.0,
     include: Annotated[
         list[Path] | None,
         typer.Option("--include", help="Extra file to bundle (next to the entry). Repeatable."),
@@ -378,6 +388,7 @@ def submit(
             prefer=prefer,
             accept_restart_only=accept_restart_only,
             extra_files=extra,
+            max_paid_usd=max_paid,
         )
     except GpuRelayError as exc:
         _fail(exc)

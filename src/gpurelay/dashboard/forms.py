@@ -44,6 +44,8 @@ class SubmitForm(UploadForm):
     data: list[str] = Field(default_factory=list, max_length=20)
     prefer: str | None = None
     accept_restart_only: bool = False
+    # Paid GPUs this job may use after free ones run out (USD). 0 = free GPUs only.
+    max_paid_usd: float = Field(default=0.0, ge=0, le=1000)
 
 
 class QuotaForm(BaseModel):

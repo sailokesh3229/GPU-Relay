@@ -67,7 +67,10 @@ for epoch in range(EPOCHS):
         n = bump()
         pick = rng.randint(0, 999)
         batch_sum = int((xb * 1000).round().sum().item())
-        line = f"e{epoch} s{step:2d} n{n:3d} cs {checksum} batch {batch_sum} pick {pick} loss {loss.item():.3f}"
+        line = (
+            f"e{epoch} s{step:2d} n{n:3d} cs {checksum} batch {batch_sum} pick {pick} "
+            f"loss {loss.item():.3f}"
+        )
         print(line, flush=True)
         with open("steps.txt", "a") as fh:
             fh.write(line + "\n")

@@ -12,8 +12,13 @@
    c. the fastest GPU (relative speed, T4 = 1.0): the job finishes soonest;
    d. the most remaining budget; when budgets tie, the GPU model of the job's previous
       segments (less numeric drift).
-3. If only manual backends (Colab) can take it, the job waits for the user (``awaiting_user``).
-4. If no backend has budget, the job waits for the earliest reset (``waiting_for_quota``).
+3. If only manual backends (Colab) can take it, the job waits for the user (``awaiting_user``):
+   free GPU time always comes before paid.
+4. Paid GPU time (plan P16), only when no free option is left and only within both the
+   job's paid allowance and the platform's monthly paid limit (both $0 by default): the
+   cheapest per unit of work (price / speed). The session ends before it could exceed
+   either limit.
+5. Otherwise the job waits for the earliest reset (``waiting_for_quota``).
 5. Different jobs run in parallel on different backends (or up to ``max_concurrent`` on one);
    a job with a live segment is never scheduled again.
 """
@@ -44,6 +49,8 @@ class BackendView:
     next_reset: datetime | None = None
     budget_model: str | None = None  # BudgetModel value
     speed: float = 1.0  # relative GPU speed, T4 = 1.0
+    paid_usd_per_h: float | None = None  # paid GPU time after the free budget
+    paid_left_usd: float = 0.0  # the platform's monthly paid limit minus this month's spend
 
     @property
     def expiring(self) -> bool:
@@ -70,6 +77,7 @@ class JobView:
     submitted_at: datetime
     prefer_backend: str | None = None
     previous_gpus: list[str] = field(default_factory=list)
+    paid_left_usd: float = 0.0  # the job's paid allowance minus what it already spent
 
 
 @dataclass
@@ -80,6 +88,7 @@ class Decision:
     deadline_s: float | None = None
     wait_until: datetime | None = None
     reason: str = ""
+    paid: bool = False  # the session runs on paid GPU time
 
 
 def _remaining(backend: BackendView) -> float:
@@ -148,6 +157,20 @@ def plan(
                     reason="only manual backends have budget",
                 )
             )
+            continue
+        paid = [
+            b for b in backends
+            if b.automated and b.ready and b.paid_usd_per_h
+            and slots[b.name] < b.max_concurrent
+            and min(b.paid_left_usd, job.paid_left_usd) >= b.paid_usd_per_h * min_segment_h
+        ]  # fmt: skip
+        if paid:
+            chosen = min(paid, key=lambda b: ((b.paid_usd_per_h or 0) / b.speed, b.name))
+            slots[chosen.name] += 1
+            allowed = min(chosen.paid_left_usd, job.paid_left_usd)
+            deadline = min(chosen.max_session_s, allowed / (chosen.paid_usd_per_h or 1) * 3600)
+            decisions.append(Decision(job.id, "launch", chosen.name, deadline,
+                                      reason="paid, within your limits", paid=True))  # fmt: skip
             continue
         resets = [b.next_reset for b in backends if b.next_reset is not None and b.ready]
         busy = any(b.ready and b.has_budget(min_segment_h) for b in backends)

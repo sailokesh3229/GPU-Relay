@@ -354,10 +354,19 @@ function money(b, h) {
   return b.unit === "h" ? hours(h) : `${pre}${v.toFixed(v < 100 ? 2 : 0)}${post}`;
 }
 function period(b) { return {monthly: "monthly", daily: "daily", weekly_rolling: "weekly"}[b.model] || "weekly"; }
+function paidLine(b) {
+  if (!b.paid_usd_per_h) return "";
+  return b.paid_cap_usd > 0
+    ? `Paid after free: $${b.paid_usd_per_h.toFixed(2)}/h · $${b.paid_spent_usd.toFixed(2)} of $${b.paid_cap_usd.toFixed(2)} this month`
+    : `Paid after free: off (monthly limit $0)`;
+}
 function budgetCards() {
   return el("section", {class: "cards3", "aria-label": "GPU budget"}, overview.backends.map((b) => {
     let big, bar = null, foot;
-    if (b.budget_h) {
+    if (b.hold) {
+      big = el("span", {class: "big"}, "Unavailable ", el("span", {text: "$0 usable now"}));
+      foot = b.hold;
+    } else if (b.budget_h) {
       const left = Math.max(0, b.remaining_h ?? 0);
       big = el("span", {class: "big"}, `${money(b, left)} `, el("span", {text: `of ${money(b, b.budget_h)} left`}));
       bar = el("span", {class: "bar"}, el("span", {style: `width:${Math.min(100, (100 * left) / b.budget_h)}%`}));
@@ -373,7 +382,7 @@ function budgetCards() {
     return el("a", {class: "bcard", href: "#/budget"},
       el("span", {class: "top"}, el("span", {text: backendLabel(b.name, b.gpu)}), el("span", {text: b.budget_h ? period(b) : b.automated ? "unlimited" : "manual"})),
       big, bar, el("span", {class: "small muted", text: foot}),
-      b.hold ? el("span", {class: "small", style: "color:var(--bad)", text: `On hold: ${b.hold}`}) : null);
+      paidLine(b) ? el("span", {class: "small muted", text: paidLine(b)}) : null);
   }));
 }
 
@@ -397,7 +406,8 @@ async function jobView(id) {
   const lastCk = data.last_checkpoint;
   const stats = el("section", {class: "stats", "aria-label": "Summary"},
     stat("Progress", p === null ? (job.progress || "–") : `${p}%`, job.total ? `${job.completed} of ${job.total}` : job.state === "completed" ? "done" : "learned after the first checkpoint"),
-    stat("GPU time used", hours(job.used_h), job.eta_h && !job.terminal ? `about ${hours(job.eta_h)} still needed` : `${job.segments} segment${job.segments === 1 ? "" : "s"}`),
+    stat("GPU time used", hours(job.used_h), (job.eta_h && !job.terminal ? `about ${hours(job.eta_h)} still needed` : `${job.segments} segment${job.segments === 1 ? "" : "s"}`)
+      + (job.cost_usd > 0 ? ` · $${job.cost_usd.toFixed(2)} paid` : " · free")),
     stat("Last checkpoint", lastCk ? `#${lastCk.seq}` : "none yet", lastCk ? ago(lastCk.at) : `${data.checkpoints} saved`),
     stat("This session ends", live && live.deadline_at ? `in ${span((Date.parse(live.deadline_at) - Date.now()) / 1000)}` : "–",
       live ? "hands off by itself before the limit" : job.terminal ? "no session running" : "no session running yet"));
@@ -405,7 +415,7 @@ async function jobView(id) {
   const table = el("div", {class: "scroll"}, el("table", {},
     el("thead", {}, el("tr", {}, ["#", "Backend", "Ran", "Checkpoints", "How it ended"].map((t) => el("th", {scope: "col", text: t})))),
     el("tbody", {}, segs.length ? segs.map((s) => el("tr", {},
-      el("td", {text: String(s.index)}), el("td", {text: backendLabel(s.backend, s.gpu)}), el("td", {text: hours(s.duration_s / 3600)}),
+      el("td", {text: String(s.index)}), el("td", {text: backendLabel(s.backend, s.gpu)}), el("td", {text: hours(s.duration_s / 3600) + (s.cost_usd > 0 ? ` · $${s.cost_usd.toFixed(2)} paid` : "")}),
       el("td", {text: `${s.start_checkpoint ?? "—"} → ${s.end_checkpoint ?? (s.state === "running" ? "…" : "—")}`}),
       el("td", {text: ENDINGS[s.outcome] || ENDINGS[s.state] || s.outcome || s.state}))) :
       el("tr", {}, el("td", {colspan: "5", class: "muted", text: "No sessions yet."})))));
@@ -533,6 +543,8 @@ function submitView() {
     el("details", {}, el("summary", {style: "cursor:pointer;font-weight:600;font-size:13px"}, "More options"),
       el("div", {style: "display:flex;flex-direction:column;gap:14px;margin-top:12px"},
         field("jprio", "Priority", el("input", {id: "jprio", name: "priority", type: "number", value: "0", min: "-1000", max: "1000"})),
+        field("jpaid", "Paid GPUs if free ones run out (USD)", el("input", {id: "jpaid", name: "paid", type: "number", value: "0", min: "0", max: "1000", step: "0.5"}),
+          el("span", {class: "small muted", text: "0 = free GPUs only. Paid time also needs a platform with a monthly paid limit above $0 (GPU budget page)."})),
         field("jdata", "Data (one per line)", el("textarea", {id: "jdata", name: "data", placeholder: "kaggle:owner/dataset\nhf:owner/repo\nurl:…"}),
           el("span", {class: "small muted", text: "kaggle:, hf: or url: sources are downloaded inside each GPU session."})),
         field("jreq", "requirements.txt (optional)", el("input", {id: "jreq", name: "requirements", type: "file", accept: ".txt"})))),
@@ -580,7 +592,8 @@ async function doSubmit(form) {
   try {
     const body = {filename: s.file.name, content: s.content, name: f.get("name") || null, prefer: f.get("prefer") || null,
       estimate: f.get("estimate") || null, priority: Number(f.get("priority") || 0),
-      data: String(f.get("data") || "").split("\n").map((x) => x.trim()).filter(Boolean), accept_restart_only: f.get("accept") === "on"};
+      data: String(f.get("data") || "").split("\n").map((x) => x.trim()).filter(Boolean), accept_restart_only: f.get("accept") === "on",
+      max_paid_usd: Math.max(0, Number(f.get("paid") || 0))};
     if (reqFile) body.requirements = await reqFile.text();
     const r = await post("api/submit", body);
     submitState = null;
@@ -599,7 +612,8 @@ function budgetView() {
     const nums = el("div", {style: "display:flex;flex-wrap:wrap;gap:28px"},
       stat("Used", hours(b.used_h), "last 7 days"),
       b.budget_h ? stat("Left", money(b, Math.max(0, b.remaining_h ?? 0)), (b.unit !== "h" ? `≈ ${hours(Math.max(0, b.remaining_h ?? 0))} · ` : "") + (b.estimated ? "estimated" : "corrected by you")) : null,
-      b.next_reset ? stat("Next hours free up", when(b.next_reset), "") : null);
+      b.next_reset ? stat("Next hours free up", when(b.next_reset), "") : null,
+      b.paid_usd_per_h ? stat("Paid this month", `$${b.paid_spent_usd.toFixed(2)}`, b.paid_cap_usd > 0 ? `limit $${b.paid_cap_usd.toFixed(2)} · $${b.paid_usd_per_h.toFixed(2)}/h` : "limit $0: paid use is off") : null);
     const max = Math.max(0.1, ...b.daily_h);
     const dayNames = b.daily_h.map((_, i) => i === 6 ? "Today" : new Date(Date.now() - (6 - i) * 86400000).toLocaleDateString(undefined, {weekday: "short"}));
     const chart = el("div", {},
@@ -625,7 +639,7 @@ function budgetView() {
     return el("section", {class: "card", "aria-label": backendLabel(b.name)}, title, hold, nums, chart, correct);
   });
   render(el("header", {class: "page"}, el("div", {}, el("h1", {text: "GPU budget"}),
-    el("p", {class: "muted", text: "Free tiers limit GPU hours. GPU Relay plans jobs around what is left and never starts a session it cannot finish safely."}))),
+    el("p", {class: "muted", text: "Free first: free GPU hours and free credits, then Colab. Paid GPU time only within limits you set; every limit is $0 until you raise it, so nothing is ever charged."}))),
     sections.length ? sections : el("div", {class: "card empty", text: "No GPU platforms are set up."}));
 }
 
@@ -808,7 +822,7 @@ function wizMore(st) {
     el("p", {class: "muted", text: "Each platform you add is another free allowance. GPU Relay spends credits that expire this month first."}),
     m.enabled ? el("div", {class: "banner info"}, el("div", {}, el("span", {text: `Modal is on (${m.gpu}, $${m.monthly_usd} a month).`}))) : null,
     el("div", {class: "note"}, el("strong", {text: "Modal: about $30 of free compute a month (≈ 50 T4 hours)"}),
-      el("span", {text: "Sign up on modal.com, then Settings > API Tokens > New Token, and paste both parts here. GPU Relay uses Modal's official SDK only."})),
+      el("span", {text: "Sign up on modal.com, then Settings > API Tokens > New Token, and paste both parts here. Modal starts GPUs only once a payment method is on the account; GPU Relay still uses only the free credit unless you raise its paid limit (default $0). Without a payment method Modal shows as Unavailable."})),
     el("div", {class: "grid2"}, field("mdid", "Modal token id", tid), field("mdsec", "Modal token secret", tsec), field("mdgpu", "GPU", gpu)),
     el("label", {class: "check", for: "mdterms"}, terms, "I read Modal's terms of service and accept them for this use"),
     el("div", {class: "note"}, el("strong", {text: "Lightning AI"}),

@@ -42,6 +42,18 @@ ENV_BACKUP_S = "GPURELAY_BACKUP_S"
 ENV_TAKEOVER = "GPURELAY_TAKEOVER"
 ENV_MODAL = "GPURELAY_MODAL"
 ENV_MODAL_GPU = "GPURELAY_MODAL_GPU"
+ENV_MODAL_PAID_CAP = "GPURELAY_MODAL_PAID_CAP"  # USD a month after the free credit; default 0
+
+
+def _usd(value: str | None) -> float:
+    """A monthly limit from the environment; anything unclear means $0 (never pay)."""
+    try:
+        amount = float((value or "0").strip().lstrip("$"))
+    except ValueError:
+        return 0.0
+    return amount if amount > 0 else 0.0
+
+
 BACKUP_S = 600.0
 RESTART_DELAYS_S = (10.0, 30.0, 60.0, 120.0, 300.0)
 STOP_FILENAME = "controller.stop"  # in the home: asks `gpurelay up` to stop gracefully
@@ -125,6 +137,7 @@ def hosted_config(config: Config, env: Mapping[str, str] | None = None) -> Confi
         update["modal"] = config.backends.modal.model_copy(update={
             "enabled": True, "terms_reviewed": True,
             "gpu": env.get(ENV_MODAL_GPU, "").strip() or config.backends.modal.gpu,
+            "monthly_paid_cap_usd": _usd(env.get(ENV_MODAL_PAID_CAP)),
         })  # fmt: skip
     else:  # the switch decides both ways (a restored backup may say otherwise)
         update["modal"] = config.backends.modal.model_copy(update={"enabled": False})
@@ -171,7 +184,19 @@ def watch_stop_file(home: Path, poll_s: float = 0.5) -> threading.Thread:
     Ctrl+C or Ctrl+Break. `up` then releases its lease, so the next controller takes over at
     once instead of waiting for the lease to go stale."""
     stop = home / STOP_FILENAME
-    stop.unlink(missing_ok=True)  # a leftover request is not for this controller
+    # A request written before this process started is a leftover for an earlier controller;
+    # one written while it was starting up (a Stop clicked right away) is for this one.
+    try:
+        import psutil
+
+        started = psutil.Process().create_time()
+    except Exception:
+        started = time.time()
+    try:
+        if stop.stat().st_mtime < started - 1.0:
+            stop.unlink(missing_ok=True)
+    except FileNotFoundError:
+        pass
 
     def watch() -> None:
         while True:

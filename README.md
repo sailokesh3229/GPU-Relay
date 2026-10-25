@@ -1,9 +1,11 @@
 # GPU Relay
 
 Run long machine-learning jobs (training, evaluation, metrics such as FID, preprocessing) to
-completion on **free GPU tiers**. GPU Relay checkpoints your job automatically, hands it off
-before a session or quota limit is hit, and resumes it on another platform. The final outputs
-are the same as an uninterrupted run.
+completion **at the lowest GPU cost: free first**. GPU Relay checkpoints your job
+automatically, hands it off before a session or quota limit is hit, and resumes it on another
+platform. It uses free GPU hours and free credits first, then Colab; paid GPU time only within
+limits you set, and every limit is $0 until you raise it. The final outputs are the same as an
+uninterrupted run.
 
 You keep writing ordinary Python scripts or notebooks. Most of them need no changes.
 
@@ -20,19 +22,28 @@ anything. A free server: the first visit after a quiet spell takes about a minut
 
 - **Never lose work to a session limit.** Your job checkpoints at safe points in its loops and
   hands off before a Kaggle session (12 h), a quota, or a Colab disconnect ends it.
-- **Use every free GPU hour you have.** One job relays across platforms. The scheduler spends
-  credits that expire this month first, then the fastest GPU, then the most hours left.
+- **Lowest cost, free first.** One job relays across platforms in this order:
+  1. free GPU hours and free credits (credits that expire this month first, then the fastest
+     GPU, then the most hours left);
+  2. Colab (free, but you press Run all);
+  3. paid GPU time, only if you allowed it for this job *and* set a monthly limit above $0
+     for the platform: the cheapest per unit of work, and a session ends before it could pass
+     either limit. Both limits are $0 by default, so GPU Relay never charges you unless you
+     ask it to.
 - **Same results as one long run.** Resumed runs replay your script, restore the variables,
   random generators and files, and continue: logs and outputs match an uninterrupted run.
 
-| Platform | Free allowance | How GPU Relay uses it |
-|---|---|---|
-| Kaggle | about 30 GPU-hours a week (T4/P100) | automatic, through Kaggle's official API; always private |
-| Modal | $30 of compute a month (about 50 T4-hours) | automatic, through Modal's official SDK (you confirm its terms first) |
-| Your own NVIDIA GPU | unlimited | automatic; detected with `nvidia-smi` |
-| Google Colab | varies, not guaranteed | manual: GPU Relay prepares a resume notebook, you press Run all |
-| Lightning AI | some credits a month | paused: Lightning closed its platform to all users after a security incident (Oct 2026) |
-| Paperspace | free notebooks are public | not used: GPU Relay keeps your code and data private |
+| Platform | Free | Paid after free | How GPU Relay uses it |
+|---|---|---|---|
+| Kaggle | about 30 GPU-hours a week (T4/P100) | none | automatic, through Kaggle's official API; always private |
+| Modal | $30 of compute a month (about 50 T4-hours), once a payment method is on the account | $0.59/h for a T4, only within your monthly limit (default $0) | automatic, through Modal's official SDK (you confirm its terms first) |
+| Your own NVIDIA GPU | unlimited | none | automatic; detected with `nvidia-smi` |
+| Google Colab | varies, not guaranteed | none | manual: GPU Relay prepares a resume notebook, you press Run all |
+| Lightning AI | some credits a month | — | paused: Lightning closed its platform to all users after a security incident (Oct 2026) |
+| Paperspace | free notebooks are public | — | not used: GPU Relay keeps your code and data private |
+
+A platform that refuses to start a session (for example Modal without a payment method) is
+shown as **Unavailable** and put on hold; jobs use the other platforms meanwhile.
 
 ## Three ways to use it
 
@@ -65,7 +76,9 @@ while your laptop is off. The repo includes a one-click setup for Render's free 
 
 Anyone with the URL can look (`GPURELAY_PUBLIC_VIEW=1`); the owner logs in to submit, pause
 or cancel. To add Modal on the server, set `GPURELAY_MODAL=1` (your confirmation of Modal's
-terms), `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in the host's environment settings. The server's disk is wiped when it restarts or sleeps, so it backs up its job list
+terms), `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in the host's environment settings.
+`GPURELAY_MODAL_PAID_CAP` (USD a month, default 0) allows paid Modal time after the free
+credit; set Modal's own workspace spending limit too. The server's disk is wiped when it restarts or sleeps, so it backs up its job list
 to your private storage repo and restores it on start. The desktop app can show your server
 ("My server" in its setup) and notify you about its jobs.
 
@@ -155,7 +168,7 @@ GPU Relay follows the platforms' terms:
 | `gpurelay serve` | controller + web app with a login, for a server |
 | `gpurelay init [--local]` | config, storage, Kaggle credentials (or local-only setup) |
 | `gpurelay analyze <file> [--probe]` | resumability report, risks, GPU-time suggestions |
-| `gpurelay submit <file>` | upload a job (script or notebook) |
+| `gpurelay submit <file> [--max-paid USD]` | upload a job (script or notebook); paid GPU time allowed for it (default 0: free only) |
 | `gpurelay up` | run the controller (scheduling, handoffs, notifications) |
 | `gpurelay status [job]` / `quota` | progress, ETA, remaining GPU budget |
 | `gpurelay logs <job> [-f]` | merged log |

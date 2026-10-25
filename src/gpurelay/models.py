@@ -175,6 +175,8 @@ class Job(_Model):
     requirements: str | None = None
     data: list[DataSpec] = Field(default_factory=list)
     estimate_h: float | None = Field(default=None, gt=0)
+    # Paid GPUs this job may use once free ones run out, in USD (default: free only).
+    max_paid_usd: float = Field(default=0.0, ge=0)
     prefer_backend: str | None = None
     accept_restart_only: bool = False
     bundle_hash: str | None = None
@@ -207,6 +209,8 @@ class Segment(_Model):
     message: str = ""
     # "main" runs the job; a "worker" only computes chunks of a parallel region (Phase 9).
     role: str = "main"
+    # Set when the segment runs on paid GPU time: its price, so its cost is known.
+    paid_usd_per_h: float | None = Field(default=None, gt=0)
     region: str | None = None  # worker: id of the parallel chunks region it helps with
 
 
