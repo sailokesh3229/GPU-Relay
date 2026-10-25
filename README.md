@@ -10,6 +10,12 @@ You keep writing ordinary Python scripts or notebooks. Most of them need no chan
 **Live demo:** https://gpu-relay-9uuh.onrender.com (anyone can look; only the owner can change
 anything. A free server: the first visit after a quiet spell takes about a minute to wake it.)
 
+![Jobs on the live website](docs/screenshots/jobs.jpg)
+
+| A job relayed between two Kaggle sessions | The desktop app's setup wizard |
+|---|---|
+| ![Job detail with the relay timeline](docs/screenshots/job-detail.jpg) | ![Setup wizard in the desktop app](docs/screenshots/desktop-setup.jpg) |
+
 ## What it does
 
 - **Never lose work to a session limit.** Your job checkpoints at safe points in its loops and
