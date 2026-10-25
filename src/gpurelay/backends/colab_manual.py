@@ -106,6 +106,8 @@ def render_notebook(
 class ColabManualBackend:
     """Prepares resume notebooks; the user runs them. ``automated`` is always False."""
 
+    hub_sessions = True  # sessions run with ``session_settings`` (Hub commit budget)
+
     settings: ColabSettings
     runtime: RuntimeSettings
     storage: Storage

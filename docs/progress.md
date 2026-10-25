@@ -878,3 +878,53 @@ that `gpurelay serve` and `gpurelay dashboard` show.
 - **Found while live:** the storage repo hit Hugging Face's limit of 128 commits per hour
   during the Kaggle stress run. Heartbeats, checkpoints, lease renewals and backups each make
   a commit. The fix is planned as W3b.
+
+## Phase W3b — Hub commit budget (2026-10-25)
+
+**Problem (found live):** the storage repo hit Hugging Face's limit of 128 commits per hour
+(HTTP 429) during the Kaggle stress run. The repo's own history for that hour (25 Oct, 09:00
+UTC) shows exactly 128 commits:
+
+| what | commits |
+|---|---|
+| checkpoint data and LATEST | 47 |
+| retention deletes | 38 |
+| heartbeats | 19 |
+| lease renewals | 12 |
+| other | 12 |
+
+Every write to the Hub is a commit. A checkpoint took 4 commits: data, LATEST, then two
+retention deletes. The tests had never noticed, because local storage has no limit.
+
+**Fixes:**
+- **2 commits per checkpoint instead of 4.** The deletion of old checkpoints and of leftovers
+  from an uncommitted attempt now goes into the data commit itself
+  (`BatchStorage.put_many(..., deletes=...)`). The newest committed checkpoint, which LATEST
+  still names until the second commit, is always kept, so a resume can never lose its
+  checkpoint.
+- **Hub-backed sessions** (Kaggle, Colab, Lightning; `backends/common.session_settings`):
+  - a heartbeat at least every 5 minutes (was 2);
+  - checkpoints at least 5 minutes apart, unless `max_lost_work_s` is smaller (the lost-work
+    limit still wins);
+  - a session counts as stale after 3 missed heartbeats.
+  - The controller judges staleness and session end times with the same settings
+    (`Controller._runtime_for`).
+- **Controller lease:** renewed every 10 minutes (was 2) and stale after 30 minutes.
+- **Server backup:** uploaded only when the config or job database actually changed
+  (`hosted.StateBackup`, which compares content digests, including with the copy already
+  stored).
+- **Budget with one job running, worst case:** 12 heartbeats + 24 checkpoint commits + 6 lease
+  renewals + 6 backups = 48 commits per hour, under half the limit.
+
+**Tests:** `tests/unit/test_commit_budget.py` (5 tests):
+- each checkpoint is exactly 2 commits, and exactly `keep` checkpoints remain;
+- retention keeps the checkpoint a resumed session started from;
+- the session settings floors;
+- the hourly worst case is at most 64;
+- the backup uploads only changes.
+
+**Verification:**
+- 425 unit tests pass; ruff and mypy are clean.
+- All 13 integration files pass, run one at a time. `test_equivalence_auto` had 1 failure out
+  of 14 on its first run (the summary did not say which test) and passed 14/14 on the rerun.
+  It may be the known timing sensitivity on this laptop, but that is not confirmed.

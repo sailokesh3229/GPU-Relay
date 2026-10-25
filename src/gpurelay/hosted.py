@@ -13,11 +13,14 @@ restarted when it exits; the dashboard runs in this process behind a login.
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import io
 import logging
 import os
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -59,15 +62,49 @@ def restore_state(storage: Storage, home: Path) -> bool:
     return True
 
 
+def _content_digest(archive: bytes) -> str:
+    """SHA-256 of the archive's member names and contents (not of the gzip/tar framing,
+    which carries timestamps)."""
+    digest = hashlib.sha256()
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        for member in sorted(tar.getmembers(), key=lambda m: m.name):
+            fh = tar.extractfile(member)
+            if fh is not None:
+                digest.update(member.name.encode() + b"\0" + fh.read() + b"\0")
+    return digest.hexdigest()
+
+
+class StateBackup:
+    """Uploads the config and a consistent copy of the job database, but only when they
+    changed since the last upload (on the Hub every upload is a commit: 128 per hour)."""
+
+    def __init__(self, storage: Storage, home: Path) -> None:
+        self.storage = storage
+        self.home = home
+        self.digest: str | None = None  # of the copy in storage; None = not known yet
+
+    def __call__(self, *, force: bool = False) -> bool:
+        """Back up now if anything changed. False if there was nothing (new) to save."""
+        if not (self.home / STATE_DB_FILENAME).exists():
+            return False
+        with tempfile.TemporaryDirectory(prefix="gpurelay-backup-") as tmp:
+            archive = Path(tmp) / "state.tar.gz"
+            export_state(self.home, archive)
+            data = archive.read_bytes()
+        digest = _content_digest(data)
+        if self.digest is None and not force:
+            stored = self.storage.get_bytes(STATE_KEY)  # a read, not a commit
+            self.digest = _content_digest(stored) if stored else ""
+        if digest == self.digest and not force:
+            return False
+        self.storage.put_bytes(data, STATE_KEY)
+        self.digest = digest
+        return True
+
+
 def backup_state(storage: Storage, home: Path) -> bool:
-    """Upload the config and a consistent copy of the job database. False if nothing to save."""
-    if not (home / STATE_DB_FILENAME).exists():
-        return False
-    with tempfile.TemporaryDirectory(prefix="gpurelay-backup-") as tmp:
-        archive = Path(tmp) / "state.tar.gz"
-        export_state(home, archive)
-        storage.put_bytes(archive.read_bytes(), STATE_KEY)
-    return True
+    """Upload the config and job database now, changed or not. False if there is no database."""
+    return StateBackup(storage, home)(force=True)
 
 
 def hosted_config(config: Config) -> Config:
@@ -208,7 +245,7 @@ def serve(host: str, port: int, home: Path) -> None:  # pragma: no cover - wires
     storage = prepare_home(home, lambda repo: HFHubStorage(repo, hf_token()))
     supervisor = Supervisor(
         controller_command(os.environ.get(ENV_TAKEOVER) == "1"),
-        lambda: backup_state(storage, home),
+        StateBackup(storage, home),
         backup_s=float(os.environ.get(ENV_BACKUP_S) or BACKUP_S),
     )
     thread = threading.Thread(target=supervisor.run, name="gpurelay-supervisor", daemon=True)

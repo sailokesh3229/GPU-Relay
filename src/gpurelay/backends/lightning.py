@@ -159,6 +159,8 @@ def bootstrap_command(source: str) -> str:
 class LightningBackend:
     """Backend over the official Lightning SDK. ``client_factory`` is called lazily."""
 
+    hub_sessions = True  # sessions run with ``session_settings`` (Hub commit budget)
+
     settings: LightningSettings
     runtime: RuntimeSettings
     storage_uri: str

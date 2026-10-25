@@ -61,6 +61,7 @@ class PersistResult:
     upload_s: float = 0.0
     total_s: float = 0.0
     files: list[str] = field(default_factory=list)
+    retention_done: bool = False  # old checkpoints were deleted in the data commit itself
 
     @property
     def throughput_bps(self) -> float:
@@ -177,7 +178,7 @@ class Persister:
             result.total_s = time.perf_counter() - started
             shutil.rmtree(staging, ignore_errors=True)
             shutil.rmtree(local_dir, ignore_errors=True)
-        if result.ok:
+        if result.ok and not result.retention_done:
             self._apply_retention(seq)
         return result
 
@@ -276,16 +277,26 @@ class Persister:
         uploads: dict[str, Path],
         blobs: dict[str, Path],
     ) -> None:
-        """One write for blobs + uploads + checkpoint files + manifest, then the commit.
+        """One write for blobs + uploads + checkpoint files + manifest + the deletion of old
+        checkpoints, then the commit.
 
-        On the Hub this is two commits per checkpoint (data, then ``LATEST.json``).
+        On the Hub this is two commits per checkpoint (data, then ``LATEST.json``): the Hub
+        allows 128 commits per hour per repo.
         """
         assert isinstance(self.storage, BatchStorage)
         batch = self.storage
         prefix = ckpt_prefix(self.job_id, seq)
+        # Leftovers of an uncommitted attempt at this seq go in the same commit.
         stale = self.retry.call(lambda: self.storage.list(prefix + "/"), what="list")
-        if stale:
-            self.retry.call(lambda: batch.delete_many(stale), what="delete stale files")
+        # Retention too. ``LATEST`` still names the newest committed checkpoint until the
+        # second commit, so that one is always kept (``keep >= 2``).
+        try:
+            previous = sorted(set(self.committed))[-(self.keep - 1) :]
+            doomed = self._doomed(seq, set(previous))
+            result.retention_done = True
+        except Exception as exc:  # listing failed: retention runs after the commit instead
+            log.warning("could not plan checkpoint retention: %s", exc)
+            doomed = []
 
         expected: dict[str, str] = {}
         items: list[tuple[str, Path | bytes]] = []
@@ -322,7 +333,8 @@ class Persister:
         )
 
         def write_and_verify() -> None:
-            batch.put_many(items, message=f"gpurelay {self.job_id} checkpoint {seq}")
+            batch.put_many(items, message=f"gpurelay {self.job_id} checkpoint {seq}",
+                           deletes=[*stale, *doomed])  # fmt: skip
             for remote, digest in expected.items():
                 stored = stored_sha256(self.storage, remote, staging)
                 if stored != digest:
@@ -362,20 +374,24 @@ class Persister:
         if stored != digest:
             raise ChecksumMismatchError(f"{remote}: stored sha256 {stored} != {digest}")
 
+    def _doomed(self, seq: int, keep: set[int]) -> list[str]:
+        """Keys of checkpoints older than ``seq`` that are not in ``keep``, manifests first."""
+        keys = self.storage.list(checkpoints_prefix(self.job_id) + "/")
+        # Manifests first: a partially deleted checkpoint must not look loadable.
+        keys.sort(key=lambda k: not k.endswith("/" + MANIFEST_FILENAME))
+        return [
+            key
+            for key in keys
+            if (key_seq := parse_ckpt_seq(key, self.job_id)) is not None
+            and key_seq < seq
+            and key_seq not in keep
+        ]
+
     def _apply_retention(self, seq: int) -> None:
         """Delete every checkpoint older than ``seq`` except the newest ``keep`` committed."""
         keep = set(sorted(set(self.committed))[-self.keep :])
         try:
-            keys = self.storage.list(checkpoints_prefix(self.job_id) + "/")
-            # Manifests first: a partially deleted checkpoint must not look loadable.
-            keys.sort(key=lambda k: not k.endswith("/" + MANIFEST_FILENAME))
-            doomed = [
-                key
-                for key in keys
-                if (key_seq := parse_ckpt_seq(key, self.job_id)) is not None
-                and key_seq < seq
-                and key_seq not in keep
-            ]
+            doomed = self._doomed(seq, keep)
             if isinstance(self.storage, BatchStorage):
                 manifests = [k for k in doomed if k.endswith("/" + MANIFEST_FILENAME)]
                 self.storage.delete_many(manifests, message=f"gpurelay {self.job_id} retention")

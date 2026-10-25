@@ -252,6 +252,8 @@ def render_bootstrap(
 class KaggleBackend:
     """Backend over the official Kaggle client. ``client_factory`` is called lazily."""
 
+    hub_sessions = True  # sessions run with ``session_settings`` (Hub commit budget)
+
     settings: KaggleSettings
     runtime: RuntimeSettings
     storage_uri: str

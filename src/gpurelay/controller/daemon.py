@@ -23,8 +23,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from gpurelay.backends.common import session_settings
 from gpurelay.backends.local import is_runtime_exit
-from gpurelay.config import Config
+from gpurelay.config import Config, RuntimeSettings
 from gpurelay.constants import BUDGET_LOW_FRACTION
 from gpurelay.controller.assemble import assemble
 from gpurelay.controller.db import StateDB
@@ -313,6 +314,13 @@ class Controller:
             if job is not None:
                 self._set_job(job, JobState.RUNNING, now, "user started the session")
 
+    def _runtime_for(self, seg: Segment) -> RuntimeSettings:
+        """The settings the segment's session runs with (Hub-backed ones beat less often)."""
+        slot = self.backends.get(seg.backend)
+        if slot is not None and getattr(slot.backend, "hub_sessions", False):
+            return session_settings(self.config.runtime)
+        return self.config.runtime
+
     def _session_end(self, seg: Segment, status: StatusFile | None, now: float) -> float:
         """When a session that is no longer running ended, for its end time and GPU usage.
 
@@ -321,13 +329,13 @@ class Controller:
         """
         if status is None:
             return now
-        last = status.heartbeat_at.timestamp() + self.config.runtime.heartbeat_s
+        last = status.heartbeat_at.timestamp() + self._runtime_for(seg).heartbeat_s
         return min(now, max(_ts(seg.started_at) or now, last))
 
     def _stale(
         self, seg: Segment, status: StatusFile | None, now: float, factor: float = 1.0
     ) -> bool:
-        limit = self.config.runtime.stale_heartbeat_s * factor
+        limit = self._runtime_for(seg).stale_heartbeat_s * factor
         if status is None:
             # No heartbeat yet: the session may still be booting / installing the runtime.
             started = _ts(seg.started_at) or now

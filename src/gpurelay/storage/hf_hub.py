@@ -210,24 +210,38 @@ class HFHubStorage:
     # ------------------------------------------------------------------ extensions
 
     def put_many(
-        self, items: Sequence[tuple[str, Path | bytes]], message: str = "gpurelay batch"
+        self,
+        items: Sequence[tuple[str, Path | bytes]],
+        message: str = "gpurelay batch",
+        deletes: Iterable[str] = (),
     ) -> None:
-        """Upload many files in one commit (``BatchStorage``)."""
-        self._commit([self._add(remote, source) for remote, source in items], message)
+        """Upload many files and delete ``deletes`` in one commit (``BatchStorage``).
 
-    def delete_many(self, remotes: Iterable[str], message: str = "gpurelay delete") -> None:
-        """Delete many keys in one commit; missing keys are ignored."""
+        The Hub allows 128 commits per hour per repo, so related writes share a commit."""
+        added = {validate_key(remote) for remote, _ in items}
+        gone = self._present(set(deletes) - added)
+        self._commit(
+            [self._add(remote, source) for remote, source in items]
+            + [self._delete(r) for r in gone],
+            message,
+        )
+
+    def _present(self, remotes: Iterable[str]) -> Sequence[str]:
+        """The keys among ``remotes`` that exist (deleting a missing path fails a commit)."""
         wanted = sorted(set(remotes))
         if not wanted:
-            return
+            return []
         info = self._call(
             lambda: self.api.get_paths_info(
                 self.repo_id, wanted, repo_type=REPO_TYPE, token=self.token
             ),
             "paths info",
         )
-        present = sorted({i.path for i in info})
-        self._commit([self._delete(r) for r in present], message)
+        return sorted({i.path for i in info})
+
+    def delete_many(self, remotes: Iterable[str], message: str = "gpurelay delete") -> None:
+        """Delete many keys in one commit; missing keys are ignored."""
+        self._commit([self._delete(r) for r in self._present(remotes)], message)
 
     def sha256(self, remote: str) -> str | None:
         """SHA-256 of the stored file: from LFS metadata when available, else downloaded."""

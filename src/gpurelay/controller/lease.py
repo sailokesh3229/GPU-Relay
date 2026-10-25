@@ -31,8 +31,8 @@ from gpurelay.storage.base import Storage
 log = logging.getLogger(__name__)
 
 LEASE_KEY = "controller/lease.json"
-RENEW_S = 120.0  # a renewal is a storage write (a commit on the Hub)
-STALE_S = 900.0  # by the holder's own clock: generous, so clock skew cannot hurt
+RENEW_S = 600.0  # a renewal is a storage write (a commit on the Hub: 128 per hour per repo)
+STALE_S = 1800.0  # by the holder's own clock: generous, so clock skew cannot hurt
 
 
 class LeaseLostError(GpuRelayError):

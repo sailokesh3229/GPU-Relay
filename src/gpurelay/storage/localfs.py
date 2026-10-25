@@ -140,14 +140,23 @@ class LocalFSStorage:
         return self._path(remote).is_file()
 
     def put_many(
-        self, items: Sequence[tuple[str, Path | bytes]], message: str = "gpurelay batch"
+        self,
+        items: Sequence[tuple[str, Path | bytes]],
+        message: str = "gpurelay batch",
+        deletes: Iterable[str] = (),
     ) -> None:
-        """Store several keys (each write is atomic; the batch as a whole is not)."""
+        """Store several keys, then delete ``deletes`` (each write is atomic; the batch as a
+        whole is not)."""
+        added = set()
         for remote, source in items:
+            added.add(remote)
             if isinstance(source, bytes):
                 self.put_bytes(source, remote)
             else:
                 self.put_file(source, remote)
+        for remote in deletes:
+            if remote not in added:
+                self.delete(remote)
 
     def delete_many(self, remotes: Iterable[str], message: str = "gpurelay delete") -> None:
         for remote in remotes:

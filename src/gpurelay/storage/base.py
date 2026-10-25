@@ -72,8 +72,14 @@ class ChecksumStorage(Protocol):
 class BatchStorage(Protocol):
     """Optional extension: many writes/deletes in one operation (one commit on the Hub)."""
 
-    def put_many(self, items: Sequence[tuple[str, Path | bytes]], message: str = ...) -> None:
-        """Store every (remote key, local file or bytes) pair."""
+    def put_many(
+        self,
+        items: Sequence[tuple[str, Path | bytes]],
+        message: str = ...,
+        deletes: Iterable[str] = ...,
+    ) -> None:
+        """Store every (remote key, local file or bytes) pair and delete ``deletes`` (missing
+        keys ignored) in the same operation: one commit on the Hub."""
         ...
 
     def delete_many(self, remotes: Iterable[str], message: str = ...) -> None:
