@@ -19,8 +19,9 @@ services:
         sync: false
       - key: GPURELAY_OWNER_PASSWORD
         sync: false
-      - key: GPURELAY_VIEWER_PASSWORD
-        sync: false
+      # Anyone with the URL can look (read-only); only the owner can make changes.
+      - key: GPURELAY_PUBLIC_VIEW
+        value: "1"
       # Signs login cookies; a stable value keeps people logged in across restarts and sleep.
       - key: GPURELAY_SESSION_KEY
         generateValue: true

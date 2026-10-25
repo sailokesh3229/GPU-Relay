@@ -1,7 +1,8 @@
 """Login for a dashboard served on the internet (``gpurelay serve``, plan W1).
 
-Two roles: the owner (everything) and an optional viewer (read-only, e.g. a reviewer). The
-passwords come from the environment, never the config file. A session is a signed cookie
+Two roles: the owner (everything) and a viewer (read-only, e.g. a reviewer). Viewers either
+log in with the viewer password or, with ``public_view``, need no login at all. The passwords
+come from the environment, never the config file. A session is a signed cookie
 (HMAC-SHA256, expiring), so the server keeps no session table; changing a password or the
 session key logs everyone out. Failed logins are rate limited per client and in total.
 """
@@ -25,6 +26,7 @@ from gpurelay.errors import ConfigError
 ENV_OWNER_PASSWORD = "GPURELAY_OWNER_PASSWORD"
 ENV_VIEWER_PASSWORD = "GPURELAY_VIEWER_PASSWORD"
 ENV_SESSION_KEY = "GPURELAY_SESSION_KEY"
+ENV_PUBLIC_VIEW = "GPURELAY_PUBLIC_VIEW"
 MIN_PASSWORD_LEN = 12
 COOKIE_NAME = "gpurelay_session"
 SESSION_S = 12 * 3600
@@ -81,6 +83,7 @@ class Auth:
     session_key: bytes = field(default_factory=lambda: secrets.token_bytes(32))
     session_s: float = SESSION_S
     secure_cookie: bool = True
+    public_view: bool = False  # anyone may look without logging in (read-only)
     clock: Callable[[], float] = time.time
     limiter: RateLimiter = field(default_factory=RateLimiter)
 
@@ -119,6 +122,7 @@ class Auth:
             owner_password=owner,
             viewer_password=env.get(ENV_VIEWER_PASSWORD) or None,
             session_key=key.encode() if key else secrets.token_bytes(32),
+            public_view=env.get(ENV_PUBLIC_VIEW, "").strip().lower() in ("1", "true", "yes"),
         )
 
     def check_password(self, password: str) -> str | None:

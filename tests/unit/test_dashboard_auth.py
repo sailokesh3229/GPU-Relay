@@ -73,7 +73,7 @@ def test_owner_can_act_viewer_can_only_read(setup: tuple[TestClient, Harness]) -
 
     r = _login(client, VIEWER_PW)
     assert r.status_code == 303 and r.headers["location"] == "/"
-    assert client.get("/api/me").json() == {"role": VIEWER, "login": True}
+    assert client.get("/api/me").json() == {"role": VIEWER, "login": True, "anonymous": False}
     assert client.get("/api/overview").status_code == 200
     assert client.get(f"/api/jobs/{job.id}").status_code == 200
     assert client.post(f"/api/jobs/{job.id}/pause", headers=ACT).status_code == 403
@@ -178,3 +178,31 @@ def test_any_host_is_only_allowed_with_a_login(tmp_path: Path) -> None:
     ctx = Context(h.controller.config, tmp_path / "home", h.db, h.storage, h.controller)
     with pytest.raises(ValueError, match="needs a login"):
         create_app(ctx, allowed_hosts=None)
+
+
+def test_public_view_lets_guests_look_but_never_act(tmp_path: Path) -> None:
+    h = _harness(tmp_path, {"a": (None, True, 1, "T4")})
+    auth = Auth(OWNER_PW, None, session_key=b"k" * 32, public_view=True)
+    client = _client(tmp_path, h, auth)
+    job = h.submit()
+    page = client.get("/")
+    assert page.status_code == 200 and "<title>GPU Relay</title>" in page.text
+    assert client.get("/api/me").json() == {"role": VIEWER, "login": True, "anonymous": True}
+    assert client.get("/api/overview").status_code == 200
+    assert client.get(f"/api/jobs/{job.id}").status_code == 200
+    assert client.get("/api/settings").json()["public_view"] is True
+    for url in (f"/api/jobs/{job.id}/pause", "/api/submit", "/api/analyze", "/api/quota/a"):
+        assert client.post(url, json={}, headers=ACT).status_code == 403
+    assert h.job(job.id).requested is None
+    assert client.get("/login").status_code == 200  # the owner can still log in
+
+    _login(client, OWNER_PW)
+    assert client.get("/api/me").json() == {"role": OWNER, "login": True, "anonymous": False}
+    assert client.post(f"/api/jobs/{job.id}/pause", headers=ACT).status_code == 200
+
+
+def test_public_view_is_off_unless_asked_for() -> None:
+    env = {"GPURELAY_OWNER_PASSWORD": OWNER_PW}
+    assert Auth.from_env(env).public_view is False
+    assert Auth.from_env({**env, "GPURELAY_PUBLIC_VIEW": "1"}).public_view is True
+    assert Auth.from_env({**env, "GPURELAY_PUBLIC_VIEW": "no"}).public_view is False

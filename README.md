@@ -76,15 +76,16 @@ and reports its speed, projected run time, memory, and checkpoint size.
 ## Web app on a server (always on, behind a login)
 
 `gpurelay serve` runs the controller and the web app together on a server. The web app has
-five screens: Jobs, Job detail, Submit, GPU budget and Settings. An owner password gives full
-control. An optional viewer password gives read-only access, for example for a reviewer.
+five screens: Jobs, Job detail, Submit, GPU budget and Settings. The owner logs in with a
+password for full control. With `GPURELAY_PUBLIC_VIEW=1`, the setting `render.yaml` uses,
+anyone with the URL can look without logging in but cannot change anything. Without it,
+visitors need the optional viewer password.
 
 To run it on Render's free plan:
 1. Push this repo to GitHub.
 2. In Render, choose New, then Blueprint, and pick the repo. `render.yaml` sets the service up.
-3. Enter the secrets Render asks for: `HF_TOKEN`, `KAGGLE_API_TOKEN`,
-   `GPURELAY_OWNER_PASSWORD` and `GPURELAY_VIEWER_PASSWORD`. Each password needs at least
-   12 characters.
+3. Enter the secrets Render asks for: `HF_TOKEN`, `KAGGLE_API_TOKEN` and
+   `GPURELAY_OWNER_PASSWORD`. The password needs at least 12 characters.
 
 The server's disk is wiped whenever it restarts or sleeps, so the job database is backed up
 to your private storage repo and restored on start. Free services sleep after 15 minutes with

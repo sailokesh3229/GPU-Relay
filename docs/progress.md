@@ -854,3 +854,27 @@ that `gpurelay serve` and `gpurelay dashboard` show.
   - A 2-day wait between sessions squeezed the timeline into slivers.
   - The finished-job note showed a terminal command.
   - Platforms that are off on purpose showed "Off" in red.
+
+## Phase W3 — Going live (2026-10-25, in progress)
+
+- **Host:** Hugging Face now charges for Docker Spaces. Creating the Space failed with
+  "402 Payment Required: hosting Gradio and Docker Spaces on free cpu-basic requires a PRO
+  subscription", so the server runs on Render's free plan instead. The setup is in
+  `render.yaml` and `deploy/server/Dockerfile`.
+  - The free plan sleeps after 15 minutes with no visitors and wakes on the next visit in
+    about a minute. GPU sessions already running carry on while it sleeps.
+  - The job database survives sleep through the W1 backup.
+- **Changes for Render:**
+  - The cookie is SameSite=Lax and the CSP uses `frame-ancestors 'none'`; neither needs to
+    allow the Hugging Face iframe any more.
+  - Shutdown waits at most 15 s for the controller, to fit Render's 30 s grace period.
+- **Public view** (`GPURELAY_PUBLIC_VIEW=1`, the owner's choice): anyone with the URL can
+  look without logging in, as a read-only guest. Only the owner logs in, to submit, pause,
+  cancel or correct budgets. Job logs and outputs are therefore public. Tests:
+  `test_public_view_lets_guests_look_but_never_act` and
+  `test_public_view_is_off_unless_asked_for`. 420 unit tests pass.
+- **Code** is on GitHub: `sailokesh3229/GPU-Relay`, branch `main`. Render redeploys on
+  every push.
+- **Found while live:** the storage repo hit Hugging Face's limit of 128 commits per hour
+  during the Kaggle stress run. Heartbeats, checkpoints, lease renewals and backups each make
+  a commit. The fix is planned as W3b.

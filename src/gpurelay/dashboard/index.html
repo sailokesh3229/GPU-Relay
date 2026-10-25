@@ -153,6 +153,7 @@ form.opts{display:flex;flex-direction:column;gap:14px}
       <span id="ctl-sub"></span>
       <span id="who"></span>
       <form id="logout" method="post" action="logout" hidden><button class="btn small" type="submit">Log out</button></form>
+      <a id="owner-login" class="btn small" href="login" hidden>Owner log in</a>
     </div>
   </nav>
   <main id="view" tabindex="-1"></main>
@@ -215,7 +216,9 @@ async function api(url, options) {
 const post = (url, data) => api(url, {method: "POST", headers: Object.assign({"Content-Type": "application/json"}, ACT), body: data === undefined ? undefined : JSON.stringify(data)});
 const owner = () => me.role === "owner";
 function viewOnlyNote() {
-  return owner() ? null : el("div", {class: "banner info", role: "note"}, el("div", {}, el("strong", {text: "View-only access"}), el("span", {text: "You can look at everything. Only the owner can submit, pause or cancel jobs."})));
+  return owner() ? null : el("div", {class: "banner info", role: "note"}, el("div", {}, el("strong", {text: "View-only access"}),
+    el("span", {text: "You can look at everything. Only the owner can submit, pause or cancel jobs."})),
+    me.anonymous ? el("a", {class: "btn small", href: "login"}, "Owner log in") : null);
 }
 
 // ---------------------------------------------------------------- job states
@@ -592,8 +595,10 @@ async function settingsView() {
       el("thead", {}, el("tr", {}, ["Platform", "State", "Details", "Credentials"].map((t) => el("th", {scope: "col", text: t})))),
       el("tbody", {}, rows)))),
     el("section", {class: "card"}, el("h2", {text: "Access"}), el("dl", {class: "kv"},
-      el("dt", {text: "You are"}), el("dd", {text: me.login ? (owner() ? "the owner" : "a viewer (read-only)") : "on this computer"}),
-      el("dt", {text: "Login"}), el("dd", {text: s.server ? "required; 5 wrong tries lock a visitor out for 15 minutes" : "none (local only)"}),
+      el("dt", {text: "You are"}), el("dd", {text: me.anonymous ? "a guest (read-only)" : me.login ? (owner() ? "the owner" : "a viewer (read-only)") : "on this computer"}),
+      el("dt", {text: "Login"}), el("dd", {text: !s.server ? "none (local only)" : s.public_view
+        ? "anyone can look; the owner logs in to make changes (5 wrong tries lock a visitor out for 15 minutes)"
+        : "required; 5 wrong tries lock a visitor out for 15 minutes"}),
       el("dt", {text: "View-only password"}), el("dd", {text: s.viewer_access ? "on" : "off"}),
       el("dt", {text: "Work at risk"}), el("dd", {text: `at most ${span(s.runtime.max_lost_work_s)} of GPU work per interruption`}),
       el("dt", {text: "Version"}), el("dd", {class: "mono", text: s.version}))));
@@ -633,7 +638,10 @@ window.addEventListener("hashchange", () => { if (route().name !== "job") outTab
 (async () => {
   try {
     me = await api("api/me");
-    if (me.login) {
+    if (me.anonymous) {
+      document.getElementById("owner-login").hidden = false;
+      document.getElementById("who").textContent = "Viewing as a guest (read-only)";
+    } else if (me.login) {
       document.getElementById("logout").hidden = false;
       document.getElementById("who").textContent = owner() ? "Logged in as owner" : "Logged in as viewer (read-only)";
     }

@@ -160,6 +160,9 @@ def create_app(
             return await call_next(request)
         path = request.url.path
         role = auth.verify(request.cookies.get(COOKIE_NAME))
+        request.state.anonymous = role is None and auth.public_view
+        if request.state.anonymous:
+            role = VIEWER  # public view: look without logging in, never act
         request.state.role = role
         if role is None and path not in PUBLIC_PATHS:
             if path.startswith("/api/"):
@@ -225,7 +228,11 @@ def create_app(
 
     @app.get("/api/me")
     def me(request: Request) -> dict[str, Any]:
-        return {"role": request.state.role, "login": auth is not None}
+        return {
+            "role": request.state.role,
+            "login": auth is not None,
+            "anonymous": getattr(request.state, "anonymous", False),
+        }
 
     controller = ctx.controller
 
@@ -438,6 +445,7 @@ def create_app(
             "version": __version__,
             "server": auth is not None,
             "viewer_access": auth is not None and auth.viewer_password is not None,
+            "public_view": auth is not None and auth.public_view,
             "storage": {
                 "kind": cfg.storage.kind,
                 "repo": cfg.storage.hf_repo_id,
