@@ -68,9 +68,11 @@ class Harness:
     def live(self, job_id: str) -> list[Any]:
         return [s for s in self.db.active_segments() if s.job_id == job_id]
 
-    def finish(self, job_id: str, code: int, state: str, message: str = "") -> None:
+    def finish(
+        self, job_id: str, code: int, state: str, message: str = "", at: float | None = None
+    ) -> None:
         [seg] = self.live(job_id)
-        self.backends[seg.backend].finish(job_id, seg.id, code, state, message)
+        self.backends[seg.backend].finish(job_id, seg.id, code, state, message, at)
 
     def commit(self, job_id: str, seq: int, segment_id: str) -> None:
         pointer = CheckpointPointer(
@@ -166,6 +168,24 @@ def test_ledger_matches_segment_durations(tmp_path: Path) -> None:
     ]
     assert usage == pytest.approx(durations)
     assert durations == pytest.approx([0.5, 0.75, 1 / 3])
+
+
+def test_controller_downtime_is_not_charged_as_gpu_time(tmp_path: Path) -> None:
+    # Hardening regression: a session that ended while the controller was down (laptop
+    # off, controller killed) was charged until the controller next looked: 16 h of a
+    # 1 h Kaggle session went into the ledger.
+    h = _harness(tmp_path, {"kaggle": (30.0, True, 1, "T4")})
+    job = h.submit()
+    h.controller.tick()
+    h.clock.now += 1 * H
+    h.finish(job.id, 85, "handoff", at=h.clock.now)  # last heartbeat: when it ended
+    h.clock.now += 16 * H  # the controller was down
+    h.controller.tick()
+    heartbeat_s = h.controller.config.runtime.heartbeat_s
+    [first, *_] = h.db.segments(job.id)
+    assert first.ended_at == datetime.fromtimestamp(T0 + H + heartbeat_s, timezone.utc)
+    usage = [e.hours for e in h.db.ledger("kaggle") if e.kind == "usage"]
+    assert usage == pytest.approx([1 + heartbeat_s / H])
 
 
 def test_budget_low_notification(tmp_path: Path) -> None:

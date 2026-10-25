@@ -286,15 +286,18 @@ class Controller:
             return
         if state is BackendRunState.UNKNOWN:
             if status is not None and status.state is not RuntimeState.RUNNING:
-                self._finish(seg, _STATUS_OUTCOME[status.state], None, now, status.message)
+                self._finish(seg, _STATUS_OUTCOME[status.state], None, now, status.message,
+                             ended=self._session_end(seg, status, now))  # fmt: skip
             elif self._stale(seg, status, now):
-                self._finish(seg, "crashed", None, now, "lost contact (stale heartbeat)")
+                self._finish(seg, "crashed", None, now, "lost contact (stale heartbeat)",
+                             ended=self._session_end(seg, status, now))  # fmt: skip
             return
         code = slot.backend.returncode(handle) if hasattr(slot.backend, "returncode") else None
         outcome = self._classify(code, status)
         if seg.role == "worker" and code == ExitCode.COMPLETED:
             outcome = "completed"  # also "nothing to do" (exits before any status is written)
-        self._finish(seg, outcome, code, now, status.message if status else "")
+        self._finish(seg, outcome, code, now, status.message if status else "",
+                     ended=self._session_end(seg, status, now))  # fmt: skip
 
     def _poll_manual(self, seg: Segment, slot: BackendSlot, now: float) -> None:
         """Manual (Colab) sessions: the runtime's status.json shows the user started it."""
@@ -309,6 +312,17 @@ class Controller:
             job = self.db.get_job(seg.job_id)
             if job is not None:
                 self._set_job(job, JobState.RUNNING, now, "user started the session")
+
+    def _session_end(self, seg: Segment, status: StatusFile | None, now: float) -> float:
+        """When a session that is no longer running ended, for its end time and GPU usage.
+
+        Its last heartbeat (plus one interval), not this poll: the controller may have been
+        down for hours while the session had long finished.
+        """
+        if status is None:
+            return now
+        last = status.heartbeat_at.timestamp() + self.config.runtime.heartbeat_s
+        return min(now, max(_ts(seg.started_at) or now, last))
 
     def _stale(
         self, seg: Segment, status: StatusFile | None, now: float, factor: float = 1.0
@@ -346,9 +360,16 @@ class Controller:
         return "crashed"
 
     def _close_segment(
-        self, seg: Segment, outcome: str, code: int | None, now: float, message: str
+        self,
+        seg: Segment,
+        outcome: str,
+        code: int | None,
+        now: float,
+        message: str,
+        ended: float | None = None,
     ) -> Segment:
         ran = seg.state is not SegmentState.AWAITING_USER  # a request nobody started used no GPU
+        ended = now if ended is None else ended
         pointer = read_pointer(self.storage, seg.job_id)
         if pointer is not None:
             self.db.record_checkpoint(
@@ -358,7 +379,7 @@ class Controller:
             update={
                 "state": _OUTCOME_STATE[outcome],
                 "outcome": outcome,
-                "ended_at": _dt(now),
+                "ended_at": _dt(ended),
                 "exit_code": code,
                 "end_checkpoint_seq": pointer.seq if pointer else None,
                 "message": message,
@@ -367,15 +388,21 @@ class Controller:
         self.db.put_segment(seg)
         self._beats.pop(seg.id, None)
         if ran and seg.started_at is not None:
-            self.db.add_usage(seg.backend, seg.started_at.timestamp(), now, seg.id, now)
+            self.db.add_usage(seg.backend, seg.started_at.timestamp(), ended, seg.id, now)
         self._event(f"segment_{outcome}", message or outcome, now, segment=seg,
                     job=self.db.get_job(seg.job_id))  # fmt: skip
         return seg
 
     def _finish(
-        self, seg: Segment, outcome: str, code: int | None, now: float, message: str
+        self,
+        seg: Segment,
+        outcome: str,
+        code: int | None,
+        now: float,
+        message: str,
+        ended: float | None = None,
     ) -> None:
-        seg = self._close_segment(seg, outcome, code, now, message)
+        seg = self._close_segment(seg, outcome, code, now, message, ended)
         if seg.role == "worker":
             return  # workers only help with chunks: the job follows its main segment
         job = self.db.get_job(seg.job_id)

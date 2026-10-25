@@ -5,357 +5,642 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GPU Relay</title>
 <style>
-  :root {
-    --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e4e3de;
-    --accent: #2f6fdb; --ok: #2e8b57; --warn: #b7791f; --bad: #c0392b; --manual: #9b3fb5;
-    --run: #1b8fa6; --idle: #9a9a94; --bar: #ecebe6;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #151514; --panel: #1f1f1d; --ink: #ecebe6; --muted: #9a9a94; --line: #33332f;
-      --accent: #6d9cf0; --ok: #5cbf86; --warn: #e0a84a; --bad: #e5675a; --manual: #c77ddf;
-      --run: #4cc0d6; --idle: #77776f; --bar: #2b2b28;
-    }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px;
-           border-bottom: 1px solid var(--line); background: var(--panel); }
-  header h1 { font-size: 17px; margin: 0; font-weight: 650; }
-  .pill { font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line);
-          color: var(--muted); white-space: nowrap; }
-  .pill.on { color: var(--ok); border-color: var(--ok); }
-  .pill.off { color: var(--warn); border-color: var(--warn); }
-  .spacer { flex: 1; }
-  .updated { color: var(--muted); font-size: 12px; }
-  main { max-width: 1180px; margin: 0 auto; padding: 18px 20px 40px; display: grid; gap: 18px; }
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-            padding: 14px 16px; min-width: 0; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
-       margin: 0 0 10px; font-weight: 600; }
-  .banner { border-color: var(--manual); background: color-mix(in srgb, var(--manual) 10%, var(--panel)); }
-  .banner p { margin: 4px 0; }
-  code { font: 12.5px ui-monospace, "Cascadia Mono", Consolas, monospace;
-         background: var(--bar); padding: 1px 6px; border-radius: 4px; }
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line);
-           vertical-align: middle; white-space: nowrap; }
-  th { font-size: 12px; color: var(--muted); font-weight: 600; }
-  td.msg { color: var(--muted); max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
-  tbody tr.job { cursor: pointer; }
-  tbody tr.job:hover, tbody tr.job.selected { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-  .state { font-weight: 600; }
-  .s-completed { color: var(--ok); } .s-running, .s-launching, .s-assembling { color: var(--run); }
-  .s-failed_user, .s-failed_infra, .s-crashed { color: var(--bad); }
-  .s-awaiting_user { color: var(--manual); } .s-waiting_for_quota, .s-paused { color: var(--warn); }
-  .s-queued, .s-cancelled, .s-handoff { color: var(--muted); }
-  .progress { width: 130px; height: 7px; background: var(--bar); border-radius: 4px; overflow: hidden;
-              display: inline-block; vertical-align: middle; margin-right: 6px; }
-  .progress > span { display: block; height: 100%; background: var(--accent); }
-  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
-  .card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
-  .card .name { font-weight: 650; }
-  .card .meta { color: var(--muted); font-size: 12px; }
-  .budget { height: 8px; background: var(--bar); border-radius: 4px; overflow: hidden; margin: 8px 0 4px; }
-  .budget > span { display: block; height: 100%; background: var(--ok); }
-  .budget.low > span { background: var(--warn); } .budget.empty > span { background: var(--bad); }
-  .detail-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
-  .detail-head .title { font-size: 16px; font-weight: 650; }
-  .actions { display: flex; gap: 8px; margin-left: auto; }
-  button { font: inherit; font-size: 13px; padding: 4px 12px; border-radius: 6px; cursor: pointer;
-           border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
-  button:hover:not(:disabled) { border-color: var(--accent); }
-  button:disabled { opacity: .45; cursor: default; }
-  button.danger.armed { border-color: var(--bad); color: var(--bad); }
-  .note { color: var(--muted); margin: 6px 0 0; }
-  .timeline { position: relative; height: 26px; background: var(--bar); border-radius: 6px;
-              margin: 12px 0 4px; overflow: hidden; }
-  .timeline > span { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; min-width: 3px; }
-  .o-completed { background: var(--ok); } .o-handoff { background: var(--accent); }
-  .o-crashed, .o-failed_infra, .o-failed_user, .o-non_resumable { background: var(--bad); }
-  .o-running { background: var(--run); } .o-awaiting_user { background: var(--manual); }
-  .o-cancelled, .o-launching { background: var(--idle); }
-  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); }
-  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px;
-              vertical-align: -1px; }
-  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
-  @media (max-width: 860px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
-  pre.log { margin: 0; max-height: 420px; overflow: auto; padding: 10px; border-radius: 6px;
-            background: var(--bar); font: 12px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace;
-            white-space: pre-wrap; word-break: break-word; }
-  ul.events { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow: auto; }
-  ul.events li { padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
-  ul.events time { color: var(--muted); font-size: 12px; margin-right: 6px; }
-  .empty { color: var(--muted); padding: 8px 0; }
-  .error { color: var(--bad); }
-  [hidden] { display: none !important; }
+:root{
+  --bg:#F3F4F6;--card:#FFFFFF;--line:#E2E5EA;--line-soft:#EEF0F3;--field:#CDD2DA;
+  --ink:#15171C;--ink2:#3D4350;--muted:#5B6270;
+  --accent:#2952CC;--accent-dark:#1D3C99;--accent-soft:#EBF0FD;--accent-ink:#FFFFFF;
+  --warn-bg:#FFF4E0;--warn-line:#F2D49B;--warn-ink:#6B3F00;--warn:#C98A1E;
+  --good-bg:#E6F4EC;--good-ink:#14552F;--good:#1E7A46;
+  --bad-bg:#FDECEA;--bad-ink:#8A1C12;--bad:#B42318;
+  --grey-bg:#EEF0F3;--grey:#9AA1AC;
+  --colab:#E8710A;--mono:ui-monospace,"Cascadia Mono",Consolas,"JetBrains Mono",monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111318;--card:#1A1D24;--line:#2A2F39;--line-soft:#232832;--field:#3A404C;
+  --ink:#ECEEF2;--ink2:#C9CED8;--muted:#A3AAB8;
+  --accent:#6E8EF0;--accent-dark:#A9BCF7;--accent-soft:#1F2A4A;--accent-ink:#0B1020;
+  --warn-bg:#2E2412;--warn-line:#5C4618;--warn-ink:#F2C979;--warn:#E0A63A;
+  --good-bg:#12291D;--good-ink:#8FD9AE;--good:#3FB673;
+  --bad-bg:#2F1513;--bad-ink:#F5A59C;--bad:#F97066;
+  --grey-bg:#242933;--grey:#6B7280;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}a:hover{color:var(--accent-dark)}
+button,input,select,textarea{font:inherit;color:inherit}
+.app{min-height:100vh;display:flex;flex-wrap:wrap}
+nav.side{flex:1 1 220px;max-width:248px;padding:20px 14px;background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:22px}
+.brand{display:flex;align-items:center;gap:10px;padding:0 8px;font-weight:700;font-size:16px;letter-spacing:-.01em}
+.links{display:flex;flex-direction:column;gap:2px}
+.links a{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 10px;border-radius:8px;color:var(--ink2);font-weight:500;text-decoration:none}
+.links a:hover{background:var(--line-soft)}
+.links a[aria-current="page"]{background:var(--accent-soft);color:var(--accent-dark);font-weight:600}
+.links .count{margin-left:auto;font-size:12px;font-weight:600;padding:1px 8px;border-radius:10px;background:var(--line-soft);color:var(--muted)}
+.ctl{margin-top:auto;padding:12px;border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}
+.ctl strong{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--grey);flex:none}
+.dot.on{background:var(--good)}.dot.off{background:var(--bad)}
+main{flex:999 1 560px;min-width:0;padding:28px 32px;display:flex;flex-direction:column;gap:22px}
+@media (max-width:720px){nav.side{max-width:none;flex-basis:100%;border-right:none;border-bottom:1px solid var(--line)}main{padding:20px 16px}.ctl{margin-top:0}}
+header.page{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}
+header.page>div{margin-right:auto;min-width:0}
+h1{margin:0;font-size:24px;font-weight:700;letter-spacing:-.02em;overflow-wrap:anywhere}
+h2{margin:0;font-size:16px;font-weight:600}
+p{margin:0}
+.muted{color:var(--muted)}.small{font-size:12px}
+.mono{font-family:var(--mono);font-size:12.5px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 16px;border-radius:8px;border:1px solid var(--field);background:var(--card);font-weight:600;font-size:13px;cursor:pointer;text-decoration:none;color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{background:var(--accent-dark);color:var(--accent-ink)}
+.btn.danger{color:var(--bad)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.small{min-height:32px;padding:0 12px}
+.banner{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:14px 16px;border-radius:10px;background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-ink)}
+.banner>div{flex:1 1 280px;display:flex;flex-direction:column;gap:2px}
+.banner strong{color:var(--ink)}
+.banner.info{background:var(--accent-soft);border-color:var(--accent-soft);color:var(--accent-dark)}
+.banner.bad{background:var(--bad-bg);border-color:var(--bad-bg);color:var(--bad-ink)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px}
+.tabs button{min-height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--field);background:var(--card);color:var(--ink2);font-weight:500;font-size:13px;cursor:pointer}
+.tabs button[aria-selected="true"],.tabs button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.list{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow-x:auto}
+.grid{display:grid;grid-template-columns:minmax(150px,2.2fr) minmax(120px,1.5fr) minmax(90px,1.1fr) minmax(120px,1.6fr) minmax(70px,.8fr) minmax(70px,.8fr);gap:12px;align-items:center;min-width:680px}
+.grid.head{padding:10px 18px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--line)}
+a.row{padding:14px 18px;border-bottom:1px solid var(--line-soft);color:var(--ink);text-decoration:none}
+a.row:last-child{border-bottom:none}
+a.row:hover{background:var(--line-soft);color:var(--ink)}
+.name{display:flex;flex-direction:column;min-width:0}
+.name b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.name span{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;white-space:nowrap}
+.chip .dot{width:7px;height:7px}
+.c-running{background:var(--accent-soft);color:var(--accent-dark)}.c-running .dot{background:var(--accent)}
+.c-needs{background:var(--warn-bg);color:var(--warn-ink)}.c-needs .dot{background:var(--warn)}
+.c-quota,.c-paused{background:var(--grey-bg);color:var(--ink2)}.c-quota .dot,.c-paused .dot{background:var(--grey)}
+.c-queued{background:var(--bg);color:var(--ink2)}.c-queued .dot{background:var(--grey)}
+.c-done{background:var(--good-bg);color:var(--good-ink)}.c-done .dot{background:var(--good)}
+.c-failed{background:var(--bad-bg);color:var(--bad-ink)}.c-failed .dot{background:var(--bad)}
+.prog{display:flex;align-items:center;gap:10px}
+.bar{flex:1;height:6px;border-radius:3px;background:var(--line-soft);overflow:hidden;min-width:40px}
+.bar>span{display:block;height:100%;background:var(--accent)}
+.bar.done>span{background:var(--good)}.bar.failed>span{background:var(--bad)}
+.cards3{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+a.bcard{display:flex;flex-direction:column;gap:10px;padding:16px;background:var(--card);border:1px solid var(--line);border-radius:12px;color:var(--ink);text-decoration:none}
+a.bcard:hover{border-color:var(--field);color:var(--ink)}
+.bcard .top{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);gap:8px}
+.big{font-size:22px;font-weight:700;letter-spacing:-.02em}
+.big span{font-size:13px;font-weight:500;color:var(--muted);letter-spacing:0}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:2px}
+.stat .k{font-size:12px;color:var(--muted)}.stat .v{font-size:24px;font-weight:700;letter-spacing:-.02em}.stat .s{font-size:12px;color:var(--muted)}
+.timeline{display:flex;height:28px;border-radius:6px;overflow:hidden;background:var(--line-soft);gap:2px}
+.timeline span{display:block;height:100%;min-width:3px}
+.seg-kaggle{background:var(--accent)}.seg-colab{background:var(--colab)}.seg-other{background:var(--good)}.seg-gap{background:transparent}
+.seg-running{background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.25) 0 6px,transparent 6px 12px)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--muted);align-items:center}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+tr:last-child td{border-bottom:none}
+.scroll{overflow-x:auto}
+pre.log{margin:0;max-height:440px;overflow:auto;padding:14px;border-radius:8px;background:#0F1218;color:#D7DCE5;font:12.5px/1.55 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+ul.files{list-style:none;margin:0;padding:0}
+ul.files li{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line-soft)}
+.two{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(280px,1fr);gap:18px;align-items:start}
+@media (max-width:980px){.two{grid-template-columns:1fr}}
+form.opts{display:flex;flex-direction:column;gap:14px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label,.field .lbl{font-weight:600;font-size:13px}
+.field input[type=text],.field input[type=number],.field select,.field textarea{min-height:40px;padding:0 12px;border:1px solid var(--field);border-radius:8px;background:var(--card)}
+.field textarea{padding:8px 12px;min-height:64px;resize:vertical}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:13px}
+.drop{display:flex;flex-direction:column;align-items:center;gap:10px;padding:36px 20px;border:2px dashed var(--field);border-radius:12px;text-align:center;background:var(--card)}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.lvl{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600}
+.lvl-FULL{background:var(--good-bg);color:var(--good-ink)}.lvl-PARTIAL{background:var(--warn-bg);color:var(--warn-ink)}.lvl-RESTART_ONLY{background:var(--bad-bg);color:var(--bad-ink)}
+.chart{display:flex;align-items:flex-end;gap:10px;height:140px;padding:0 4px;border-bottom:1px solid var(--field)}
+.chart span{flex:1;background:var(--accent);border-radius:4px 4px 0 0;min-height:2px;position:relative}
+.chart span.today{opacity:.7}
+.days{display:flex;gap:10px;padding:0 4px;font-size:12px;color:var(--muted)}.days span{flex:1;text-align:center}
+.kv{display:grid;grid-template-columns:minmax(120px,max-content) 1fr;gap:8px 18px;margin:0}
+.kv dt{color:var(--muted)}.kv dd{margin:0;overflow-wrap:anywhere}
+.ok{color:var(--good)}.no{color:var(--bad)}
+.msg{font-size:13px;min-height:1.4em}
+.msg.err{color:var(--bad)}.msg.good{color:var(--good)}
+#act-msg:empty{display:none}
+.empty{padding:36px 18px;text-align:center;color:var(--muted)}
+.back{display:inline-flex;align-items:center;gap:6px;font-weight:500;text-decoration:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </style>
 </head>
 <body>
-<header>
-  <h1>GPU Relay</h1>
-  <span id="controller" class="pill">controller …</span>
-  <span class="spacer"></span>
-  <span id="updated" class="updated"></span>
-</header>
-<main>
-  <section id="colab" class="banner" hidden>
-    <h2>Colab action needed</h2>
-    <div id="colab-list"></div>
-  </section>
-
-  <section>
-    <h2>Jobs</h2>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Job</th><th>Name</th><th>State</th><th>Backend</th><th>Progress</th>
-          <th>GPU used</th><th>ETA</th><th>Segs</th><th>Message</th></tr></thead>
-        <tbody id="jobs"></tbody>
-      </table>
+<div class="app">
+  <nav class="side" aria-label="Main">
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#2952CC"></rect><path d="M7 17h5l3-6 3 6h3" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      GPU Relay
     </div>
-    <div id="jobs-empty" class="empty" hidden>No jobs yet. Submit one with <code>gpurelay submit script.py</code>.</div>
-  </section>
-
-  <section id="detail" hidden>
-    <div class="detail-head">
-      <span class="title" id="d-title"></span>
-      <span id="d-state" class="state"></span>
-      <div class="actions">
-        <button id="b-pause" data-action="pause">Pause</button>
-        <button id="b-resume" data-action="resume">Resume</button>
-        <button id="b-cancel" data-action="cancel" class="danger">Cancel</button>
-      </div>
+    <div class="links">
+      <a href="#/" data-route="jobs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 9h18M8 14h8"></path></svg>Jobs<span class="count" id="nav-count">0</span></a>
+      <a href="#/submit" data-route="submit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Submit job</a>
+      <a href="#/budget" data-route="budget"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>GPU budget</a>
+      <a href="#/settings" data-route="settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"></path></svg>Settings</a>
     </div>
-    <p class="note" id="d-summary"></p>
-    <p class="note" id="d-fit"></p>
-    <p class="note error" id="d-action-msg" hidden></p>
-    <div class="timeline" id="d-timeline"></div>
-    <div class="legend">
-      <span><i class="o-completed"></i>completed</span><span><i class="o-handoff"></i>handed off</span>
-      <span><i class="o-running"></i>running</span><span><i class="o-awaiting_user"></i>waiting for you</span>
-      <span><i class="o-crashed"></i>crashed / failed</span><span><i class="o-cancelled"></i>cancelled</span>
+    <div class="ctl" aria-live="polite">
+      <strong><span class="dot" id="ctl-dot"></span><span id="ctl-text">Connecting…</span></strong>
+      <span id="ctl-sub"></span>
+      <span id="who"></span>
+      <form id="logout" method="post" action="logout" hidden><button class="btn small" type="submit">Log out</button></form>
     </div>
-    <div class="table-wrap" style="margin-top:12px">
-      <table>
-        <thead><tr><th>#</th><th>Backend</th><th>GPU</th><th>State</th><th>Duration</th>
-          <th>Checkpoints</th><th>Message</th></tr></thead>
-        <tbody id="d-segments"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <div class="grid2" id="detail-more" hidden>
-    <section>
-      <h2>Log <span id="log-info" class="updated"></span></h2>
-      <pre class="log" id="log"></pre>
-    </section>
-    <section>
-      <h2>Events</h2>
-      <ul class="events" id="events"></ul>
-    </section>
-  </div>
-
-  <section>
-    <h2>GPU budget</h2>
-    <div class="cards" id="backends"></div>
-  </section>
-</main>
+  </nav>
+  <main id="view" tabindex="-1"></main>
+</div>
 <script>
 "use strict";
-const $ = (id) => document.getElementById(id);
-let selected = null, lastLogLength = -1;
+const ACT = {"X-GPURelay-Action": "1"};
+let overview = null, me = {role: "owner", login: false}, timer = null, filter = "all", outTab = "log";
+let submitState = null;
 
-function el(tag, props = {}, ...children) {
+// ---------------------------------------------------------------- helpers (text only, no HTML parsing)
+function el(tag, props, ...children) {
   const node = document.createElement(tag);
-  for (const [key, value] of Object.entries(props)) {
+  for (const [key, value] of Object.entries(props || {})) {
+    if (value === undefined || value === null || value === false) continue;
     if (key === "class") node.className = value;
-    else if (key === "style") node.setAttribute("style", value);
+    else if (key === "text") node.textContent = value;
+    else if (key === "style") node.style.cssText = value;
     else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
-    else node.setAttribute(key, value);
+    else node.setAttribute(key, value === true ? "" : value);
   }
-  for (const child of children) {
-    if (child === null || child === undefined) continue;
+  for (const child of children.flat()) {
+    if (child === null || child === undefined || child === false) continue;
     node.append(child instanceof Node ? child : document.createTextNode(String(child)));
   }
   return node;
 }
-
+const view = () => document.getElementById("view");
 function hours(h) {
   if (h === null || h === undefined) return "–";
-  if (h < 1 / 60) return Math.round(h * 3600) + "s";
-  if (h < 1) return Math.round(h * 60) + "m";
-  return h.toFixed(1) + "h";
+  if (h < 1 / 60) return "0 h";
+  if (h < 1) return `${Math.round(h * 60)} m`;
+  return `${h < 100 ? h.toFixed(1).replace(/\.0$/, "") : Math.round(h)} h`;
 }
-function when(iso) { return iso ? new Date(iso).toLocaleString() : "–"; }
-function duration(s) { return hours(s / 3600); }
-
-async function getJSON(url) {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || response.statusText);
-  return response.json();
+function span(s) {
+  s = Math.max(0, s);
+  if (s < 90) return `${Math.round(s)} s`;
+  if (s < 5400) return `${Math.round(s / 60)} m`;
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return h >= 48 ? `${Math.round(h / 24)} days` : `${h} h ${m} m`;
+}
+function ago(iso) { return iso ? `${span((Date.now() - Date.parse(iso)) / 1000)} ago` : "–"; }
+function when(iso) {
+  if (!iso) return "–";
+  return new Date(iso).toLocaleString(undefined, {weekday: "short", hour: "2-digit", minute: "2-digit", month: "short", day: "numeric"});
+}
+function backendLabel(name, gpu) {
+  if (!name) return "–";
+  const nice = {kaggle: "Kaggle", colab_manual: "Colab", colab: "Colab", local: "This computer", lightning: "Lightning AI"}[name] || name;
+  return gpu ? `${nice} ${gpu.replace("NvidiaTesla", "").replace("Tesla ", "")}` : nice;
+}
+async function api(url, options) {
+  const response = await fetch(url, Object.assign({cache: "no-store", credentials: "same-origin"}, options || {}));
+  if (response.status === 401) { location.href = "login"; throw new Error("log in first"); }
+  let body = null;
+  try { body = await response.json(); } catch (e) { body = null; }
+  if (!response.ok) throw new Error((body && body.detail) || `${response.status} ${response.statusText}`);
+  return body;
+}
+const post = (url, data) => api(url, {method: "POST", headers: Object.assign({"Content-Type": "application/json"}, ACT), body: data === undefined ? undefined : JSON.stringify(data)});
+const owner = () => me.role === "owner";
+function viewOnlyNote() {
+  return owner() ? null : el("div", {class: "banner info", role: "note"}, el("div", {}, el("strong", {text: "View-only access"}), el("span", {text: "You can look at everything. Only the owner can submit, pause or cancel jobs."})));
 }
 
-function progressCell(job) {
-  if (job.completed === null || job.completed === undefined) return job.progress || "–";
-  if (!job.total) return String(job.completed);
-  const pct = Math.min(100, (100 * job.completed) / job.total);
-  return el("span", {}, el("span", { class: "progress" }, el("span", { style: `width:${pct}%` })),
-            `${job.completed}/${job.total}`);
+// ---------------------------------------------------------------- job states
+const STATES = {
+  queued: ["Queued", "queued"], launching: ["Starting", "running"], running: ["Running", "running"],
+  handoff: ["Handing off", "running"], assembling: ["Collecting outputs", "running"],
+  completed: ["Completed", "done"], awaiting_user: ["Needs you", "needs"],
+  waiting_for_quota: ["Waiting for quota", "quota"], paused: ["Paused", "paused"],
+  failed_user: ["Failed: your code", "failed"], failed_infra: ["Failed: platform", "failed"],
+  cancelled: ["Cancelled", "paused"],
+};
+function chip(state, label) {
+  const [text, kind] = STATES[state] || [state, "queued"];
+  return el("span", {class: `chip c-${kind}`}, el("span", {class: "dot"}), label || text);
+}
+function pct(job) {
+  if (job.state === "completed") return 100;
+  if (job.total) return Math.min(100, Math.round((100 * job.completed) / job.total));
+  return null;
+}
+function group(job) {
+  if (job.state === "awaiting_user") return "needs";
+  return job.terminal ? "done" : "active";
+}
+function progressBar(job) {
+  const p = pct(job);
+  const kind = job.state === "completed" ? "done" : job.state.startsWith("failed") ? "failed" : "";
+  return el("span", {class: "prog"},
+    el("span", {class: `bar ${kind}`}, el("span", {style: `width:${p === null ? 0 : p}%`})),
+    el("span", {class: "small muted", text: p === null ? (job.progress || "–") : `${p}%`}));
 }
 
-function renderOverview(data) {
-  const pill = $("controller");
-  pill.textContent = data.controller_running ? "controller running" : "controller stopped";
-  pill.className = "pill " + (data.controller_running ? "on" : "off");
-  pill.title = data.controller_running ? "" : "Start it with: gpurelay up";
-  $("updated").textContent = "updated " + new Date().toLocaleTimeString();
+// ---------------------------------------------------------------- shell
+async function refreshShell() {
+  overview = await api("api/overview");
+  const active = overview.jobs.filter((j) => !j.terminal).length;
+  document.getElementById("nav-count").textContent = String(active);
+  const on = overview.controller_running;
+  document.getElementById("ctl-dot").className = `dot ${on ? "on" : "off"}`;
+  document.getElementById("ctl-text").textContent = on ? "Controller running" : "Controller stopped";
+  const running = overview.backends.reduce((n, b) => n + b.running, 0);
+  document.getElementById("ctl-sub").textContent = on
+    ? `${running} GPU session${running === 1 ? "" : "s"} running · updated ${new Date(overview.now).toLocaleTimeString()}`
+    : "Jobs wait until it starts again.";
+}
+function setNav(route) {
+  for (const a of document.querySelectorAll(".links a")) {
+    if (a.dataset.route === route) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  }
+}
+function render(...nodes) { view().replaceChildren(...nodes.flat().filter(Boolean)); }
+function errorBox(err) {
+  return el("div", {class: "banner bad", role: "alert"}, el("div", {}, el("strong", {text: "Could not load this page"}), el("span", {text: String(err.message || err)})));
+}
 
-  const colab = data.colab_actions;
-  $("colab").hidden = colab.length === 0;
-  $("colab-list").replaceChildren(...colab.map((c) =>
-    el("p", {}, `${c.name} (${c.job_id}) can continue on Colab: `,
-       el("a", { href: `/api/jobs/${encodeURIComponent(c.job_id)}/colab-notebook` },
-          "download the notebook"),
-       " (or run ", el("code", {}, c.command), " for the steps).")));
-
-  const rows = data.jobs.map((job) => el("tr", {
-      class: "job" + (job.id === selected ? " selected" : ""),
-      onclick: () => select(job.id),
-    },
-    el("td", {}, el("code", {}, job.id)),
-    el("td", {}, job.name),
-    el("td", { class: `state s-${job.state}` }, job.state.replace(/_/g, " ")),
-    el("td", {}, job.backend || "–"),
-    el("td", {}, progressCell(job)),
-    el("td", {}, hours(job.used_h)),
-    el("td", {}, job.eta_h === null ? "–" : `~${hours(job.eta_h)} (${job.eta_basis})`),
-    el("td", {}, job.segments),
-    el("td", { class: "msg", title: job.message }, job.message)));
-  $("jobs").replaceChildren(...rows);
-  $("jobs-empty").hidden = data.jobs.length > 0;
-
-  $("backends").replaceChildren(...data.backends.map((b) => {
-    let bar = null;
-    if (b.budget_h && b.remaining_h !== null) {
-      const frac = Math.max(0, Math.min(1, b.remaining_h / b.budget_h));
-      bar = el("div", { class: "budget" + (frac === 0 ? " empty" : frac < 0.1 ? " low" : "") },
-               el("span", { style: `width:${100 * frac}%` }));
+// ---------------------------------------------------------------- Jobs
+function jobsView() {
+  const jobs = overview.jobs;
+  const counts = {all: jobs.length, active: 0, needs: 0, done: 0};
+  for (const j of jobs) { const g = group(j); counts[g] += 1; if (g === "needs") counts.active += 1; }
+  const quota = jobs.filter((j) => j.state === "waiting_for_quota").length;
+  const summary = jobs.length
+    ? `${counts.active} active, ${counts.needs} need${counts.needs === 1 ? "s" : ""} you, ${quota} waiting for quota`
+    : "No jobs yet";
+  const banners = overview.colab_actions.map((a) => el("section", {class: "banner", "aria-label": "Needs your action"},
+    el("div", {}, el("strong", {text: `${a.name} is waiting for you on Colab`}),
+      el("span", {text: "Save the resume notebook, open colab.research.google.com, choose File > Upload notebook, then Runtime > Run all. It continues from the last checkpoint."})),
+    el("a", {class: "btn", href: `api/jobs/${encodeURIComponent(a.job_id)}/colab-notebook`, download: ""}, "Save notebook")));
+  const tabs = el("div", {class: "tabs", role: "tablist", "aria-label": "Filter jobs"},
+    [["all", "All"], ["active", "Active"], ["needs", "Needs you"], ["done", "Finished"]].map(([id, label]) =>
+      el("button", {type: "button", role: "tab", "aria-selected": String(filter === id),
+        onclick: () => { filter = id; show(); }}, `${label} ${counts[id]}`)));
+  const shown = jobs.filter((j) => filter === "all" || group(j) === filter || (filter === "active" && group(j) === "needs"));
+  const rows = shown.map((j) => el("a", {class: "grid row", href: `#/job/${encodeURIComponent(j.id)}`},
+    el("span", {class: "name"}, el("b", {text: j.name}),
+      el("span", {text: j.message && j.terminal && j.state !== "completed" ? j.message : `${j.entry} · ${j.segments} segment${j.segments === 1 ? "" : "s"}`})),
+    el("span", {}, chip(j.state)),
+    el("span", {text: backendLabel(j.backend)}),
+    progressBar(j),
+    el("span", {text: hours(j.used_h)}),
+    el("span", {text: j.eta_h === null || j.terminal ? "–" : hours(j.eta_h)})));
+  const list = el("section", {class: "list", "aria-label": "Job list"},
+    el("div", {class: "grid head"}, ["Job", "State", "Backend", "Progress", "GPU used", "ETA"].map((t) => el("span", {text: t}))),
+    rows.length ? rows : el("div", {class: "empty", text: jobs.length ? "No jobs in this view." : "Submit a script or notebook to start."}));
+  render(
+    el("header", {class: "page"}, el("div", {}, el("h1", {text: "Jobs"}), el("p", {class: "muted", text: summary})),
+      owner() ? el("a", {class: "btn primary", href: "#/submit"}, "+ Submit job") : null),
+    viewOnlyNote(), banners, tabs, list, budgetCards());
+}
+function budgetCards() {
+  return el("section", {class: "cards3", "aria-label": "GPU budget"}, overview.backends.map((b) => {
+    let big, bar = null, foot;
+    if (b.budget_h) {
+      const left = Math.max(0, b.remaining_h ?? 0);
+      big = el("span", {class: "big"}, `${hours(left)} `, el("span", {text: `of ${hours(b.budget_h)} left`}));
+      bar = el("span", {class: "bar"}, el("span", {style: `width:${Math.min(100, (100 * left) / b.budget_h)}%`}));
+      foot = b.next_reset ? `Next hours free up ${when(b.next_reset)}` : `${hours(b.used_h)} used`;
+    } else if (!b.automated) {
+      big = el("span", {class: "big"}, "Available ", el("span", {text: "when you open it"}));
+      foot = `${hours(b.used_h)} used this week`;
+    } else {
+      big = el("span", {class: "big", text: b.running ? "Busy" : "Idle"});
+      foot = "No fixed limit";
     }
-    return el("div", { class: "card" },
-      el("div", { class: "name" }, b.name),
-      el("div", { class: "meta" }, `${b.automated ? "automated" : "manual"} · ${b.gpu || "GPU –"} · ` +
-                                   `${b.running}/${b.max_concurrent} running`),
-      bar,
-      el("div", {}, `remaining ${b.remaining}`),
-      el("div", { class: "meta" }, `budget ${b.budget} · used ${hours(b.used_h)} this window` +
-                                   (b.next_reset ? ` · reset ${when(b.next_reset)}` : "")));
+    return el("a", {class: "bcard", href: "#/budget"},
+      el("span", {class: "top"}, el("span", {text: backendLabel(b.name, b.gpu)}), el("span", {text: b.budget_h ? "weekly" : b.automated ? "unlimited" : "manual"})),
+      big, bar, el("span", {class: "small muted", text: foot}));
   }));
 }
 
-function renderDetail(data) {
-  const job = data.job;
-  $("detail").hidden = false;
-  $("detail-more").hidden = false;
-  $("d-title").textContent = `${job.name} · ${job.id}`;
-  $("d-state").textContent = job.state.replace(/_/g, " ");
-  $("d-state").className = `state s-${job.state}`;
-  const progress = job.progress ? `progress ${job.progress}, ` : "";
-  $("d-summary").textContent = `${progress}${hours(job.used_h)} GPU time used, ${job.segments} segment(s)` +
-    (job.requested ? ` · ${job.requested} requested (the controller applies it)` : "") +
-    (job.message ? ` · ${job.message}` : "");
-  $("d-fit").textContent = data.fit || "";
-  $("b-pause").disabled = job.terminal || job.state === "paused" || job.requested !== null;
-  $("b-resume").disabled = job.state !== "paused" || job.requested !== null;
-  $("b-cancel").disabled = job.terminal || job.requested === "cancel";
-
-  const segs = data.segments.filter((s) => s.started_at);
-  const timeline = $("d-timeline");
-  if (segs.length) {
-    const start = Math.min(...segs.map((s) => Date.parse(s.started_at)));
-    const end = Math.max(...segs.map((s) => Date.parse(s.started_at) + 1000 * s.duration_s));
-    const span = Math.max(1, end - start);
-    timeline.replaceChildren(...segs.map((s) => {
-      const left = (100 * (Date.parse(s.started_at) - start)) / span;
-      const width = (100 * 1000 * s.duration_s) / span;
-      const kind = s.outcome || s.state;
-      return el("span", { class: `o-${kind}`, style: `left:${left}%;width:${width}%`,
-        title: `#${s.index} ${s.backend} · ${kind} · ${duration(s.duration_s)}` });
-    }));
-  } else timeline.replaceChildren();
-
-  $("d-segments").replaceChildren(...data.segments.map((s) => el("tr", {},
-    el("td", {}, s.index), el("td", {}, s.role === "worker" ? `${s.backend} (worker)` : s.backend),
-    el("td", {}, s.gpu || "–"),
-    el("td", { class: `state s-${s.outcome || s.state}` }, (s.outcome || s.state).replace(/_/g, " ")),
-    el("td", {}, duration(s.duration_s)),
-    el("td", {}, `${s.start_checkpoint ?? "–"} → ${s.end_checkpoint ?? "–"}`),
-    el("td", { class: "msg", title: s.message }, s.message))));
-  $("events").replaceChildren(...data.events.map((e) =>
-    el("li", {}, el("time", {}, new Date(e.at).toLocaleTimeString()), `${e.kind}: ${e.message}`)));
+// ---------------------------------------------------------------- Job detail
+const ENDINGS = {
+  handoff: "Handed off at a safe point", completed: "Finished", crashed: "Session was cut off; resumed from the last checkpoint",
+  failed_user: "Your code raised an error", failed_infra: "Platform problem", cancelled: "Cancelled",
+  paused: "Paused by you", awaiting_user: "Waiting for you to run it", running: "Running now", launching: "Starting",
+};
+async function jobView(id) {
+  const data = await api(`api/jobs/${encodeURIComponent(id)}`);
+  const job = data.job, segs = data.segments;
+  const live = segs.find((s) => s.state === "running" || s.state === "launching");
+  const actions = owner() ? el("div", {style: "display:flex;gap:8px;flex-wrap:wrap"},
+    !job.terminal && job.state !== "paused" ? actionButton(job, "pause", "Pause at next safe point") : null,
+    job.state === "paused" ? actionButton(job, "resume", "Resume", true) : null,
+    !job.terminal ? actionButton(job, "cancel", "Cancel job", false, true) : null) : null;
+  const where = live ? `${STATES[job.state] ? STATES[job.state][0] : job.state} on ${backendLabel(live.backend, live.gpu)}` : null;
+  const p = pct(job);
+  const lastCk = data.last_checkpoint;
+  const stats = el("section", {class: "stats", "aria-label": "Summary"},
+    stat("Progress", p === null ? (job.progress || "–") : `${p}%`, job.total ? `${job.completed} of ${job.total}` : job.state === "completed" ? "done" : "learned after the first checkpoint"),
+    stat("GPU time used", hours(job.used_h), job.eta_h && !job.terminal ? `about ${hours(job.eta_h)} still needed` : `${job.segments} segment${job.segments === 1 ? "" : "s"}`),
+    stat("Last checkpoint", lastCk ? `#${lastCk.seq}` : "none yet", lastCk ? ago(lastCk.at) : `${data.checkpoints} saved`),
+    stat("This session ends", live && live.deadline_at ? `in ${span((Date.parse(live.deadline_at) - Date.now()) / 1000)}` : "–",
+      live ? "hands off by itself before the limit" : job.terminal ? "no session running" : "no session running yet"));
+  const timeline = timelineBar(segs);
+  const table = el("div", {class: "scroll"}, el("table", {},
+    el("thead", {}, el("tr", {}, ["#", "Backend", "Ran", "Checkpoints", "How it ended"].map((t) => el("th", {scope: "col", text: t})))),
+    el("tbody", {}, segs.length ? segs.map((s) => el("tr", {},
+      el("td", {text: String(s.index)}), el("td", {text: backendLabel(s.backend, s.gpu)}), el("td", {text: hours(s.duration_s / 3600)}),
+      el("td", {text: `${s.start_checkpoint ?? "—"} → ${s.end_checkpoint ?? (s.state === "running" ? "…" : "—")}`}),
+      el("td", {text: ENDINGS[s.outcome] || ENDINGS[s.state] || s.outcome || s.state}))) :
+      el("tr", {}, el("td", {colspan: "5", class: "muted", text: "No sessions yet."})))));
+  const outTabs = el("div", {class: "tabs"}, [["log", "Log"], ["files", "Files"], ["events", "Events"]].map(([id, label]) =>
+    el("button", {type: "button", "aria-pressed": String(outTab === id), onclick: () => { outTab = id; show(); }}, label)));
+  const out = el("div", {id: "out"});
+  render(
+    el("a", {class: "back", href: "#/"}, "← All jobs"),
+    el("header", {class: "page"},
+      el("div", {style: "display:flex;flex-direction:column;gap:6px"},
+        el("div", {style: "display:flex;flex-wrap:wrap;align-items:center;gap:12px"}, el("h1", {text: job.name}), chip(job.state, where)),
+        el("p", {class: "muted"}, el("span", {class: "mono", text: job.id}), ` · ${job.entry} · submitted ${when(job.submitted_at)}${job.prefer_backend ? ` · runs on ${backendLabel(job.prefer_backend)}` : ""}`)),
+      actions),
+    el("p", {class: "msg", id: "act-msg", role: "status"}),
+    job.message ? el("div", {class: `banner ${job.state.startsWith("failed") ? "bad" : "info"}`}, el("div", {}, el("span", {
+      text: job.state === "completed" ? "Finished. Download the outputs from the Files tab below." : job.message}))) : null,
+    data.fit && !job.terminal ? el("p", {class: "muted", text: data.fit}) : null,
+    stats,
+    el("section", {class: "card", "aria-labelledby": "tl-h"},
+      el("div", {style: "display:flex;flex-wrap:wrap;gap:14px;align-items:center"}, el("h2", {id: "tl-h", text: "Relay timeline"}),
+        el("span", {class: "legend"}, el("span", {}, el("i", {class: "seg-kaggle"}), "Kaggle"), el("span", {}, el("i", {class: "seg-colab"}), "Colab"), el("span", {}, el("i", {class: "seg-other"}), "Other"))),
+      timeline, table),
+    el("section", {class: "card", "aria-labelledby": "out-h"},
+      el("div", {style: "display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"}, el("h2", {id: "out-h", text: "Output"}), outTabs),
+      out));
+  if (outTab === "log") loadLog(job, out);
+  else if (outTab === "files") loadFiles(job, out);
+  else out.replaceChildren(data.events.length ? el("div", {class: "scroll"}, el("table", {}, el("tbody", {}, data.events.map((e) =>
+    el("tr", {}, el("td", {class: "muted", style: "white-space:nowrap", text: when(e.at)}), el("td", {text: e.kind.replaceAll("_", " ")}), el("td", {text: e.message})))))) :
+    el("p", {class: "muted", text: "No events yet."}));
 }
-
-async function refreshLog() {
-  if (!selected) return;
-  try {
-    const data = await getJSON(`/api/jobs/${encodeURIComponent(selected)}/log`);
-    if (data.length === lastLogLength) return;
-    const pre = $("log");
-    const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
-    pre.textContent = data.text || "(no output committed yet: it appears after the first checkpoint)";
-    $("log-info").textContent = data.final ? "· final" : `· committed so far (${data.length} chars)`;
-    lastLogLength = data.length;
-    if (atBottom) pre.scrollTop = pre.scrollHeight;
-  } catch (err) {
-    $("log-info").textContent = String(err.message || err);
+function stat(k, v, s) { return el("div", {class: "stat"}, el("span", {class: "k", text: k}), el("span", {class: "v", text: v}), el("span", {class: "s", text: s})); }
+function timelineBar(segs) {
+  const started = segs.filter((s) => s.started_at);
+  if (!started.length) return el("div", {class: "timeline", role: "img", "aria-label": "No sessions yet"});
+  // Sessions to scale; each waiting gap is drawn short (a gap can be days long).
+  const total = Math.max(1, started.reduce((n, s) => n + 1000 * s.duration_s, 0));
+  const gap = total * 0.04;
+  const parts = [], labels = [];
+  let cursor = Date.parse(started[0].started_at);
+  for (const s of started) {
+    const a = Date.parse(s.started_at), d = 1000 * s.duration_s;
+    if (a - cursor > 60000) parts.push(el("span", {class: "seg-gap", style: `flex:${gap / total}`, title: `waited ${span((a - cursor) / 1000)}`}));
+    const kind = s.backend === "kaggle" ? "seg-kaggle" : s.backend.startsWith("colab") ? "seg-colab" : "seg-other";
+    parts.push(el("span", {class: `${kind}${s.state === "running" ? " seg-running" : ""}`, style: `flex:${Math.max(d, total * 0.01) / total}`, title: `#${s.index} ${backendLabel(s.backend)} ${hours(s.duration_s / 3600)}`}));
+    labels.push(`${backendLabel(s.backend)} ${hours(s.duration_s / 3600)}${s.state === "running" ? " running now" : ""}`);
+    cursor = Math.max(cursor, a + d);
   }
+  return el("div", {class: "timeline", role: "img", "aria-label": `Segments: ${labels.join(", ")}`}, parts);
 }
-
-async function refresh() {
+function actionButton(job, action, label, primary, danger) {
+  return el("button", {type: "button", class: `btn${primary ? " primary" : ""}${danger ? " danger" : ""}`, onclick: async (ev) => {
+    const msg = document.getElementById("act-msg");
+    if (action === "cancel" && !confirmInline(ev.currentTarget)) return;
+    try { const r = await post(`api/jobs/${encodeURIComponent(job.id)}/${action}`); msg.className = "msg good"; msg.textContent = `${r.message}. The controller applies it at the next safe point.`; }
+    catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+  }}, label);
+}
+function confirmInline(button) {
+  if (button.dataset.armed === "1") return true;
+  button.dataset.armed = "1"; button.textContent = "Click again to cancel";
+  setTimeout(() => { button.dataset.armed = ""; button.textContent = "Cancel job"; }, 4000);
+  return false;
+}
+async function loadLog(job, out) {
+  const pre = el("pre", {class: "log", "aria-label": "Job log", text: "Loading…"});
+  out.replaceChildren(pre);
   try {
-    renderOverview(await getJSON("/api/overview"));
-    if (selected) renderDetail(await getJSON(`/api/jobs/${encodeURIComponent(selected)}`));
-  } catch (err) {
-    $("updated").textContent = "cannot reach the dashboard server: " + (err.message || err);
-  }
+    const data = await api(`api/jobs/${encodeURIComponent(job.id)}/log`);
+    pre.textContent = data.text || "No output yet. It appears here after the first checkpoint.";
+    pre.scrollTop = pre.scrollHeight;
+  } catch (e) { pre.textContent = e.message; }
+}
+async function loadFiles(job, out) {
+  out.replaceChildren(el("p", {class: "muted", text: "Loading…"}));
+  try {
+    const data = await api(`api/jobs/${encodeURIComponent(job.id)}/files`);
+    if (!data.completed) { out.replaceChildren(el("p", {class: "muted", text: "Outputs can be downloaded here when the job completes."})); return; }
+    out.replaceChildren(data.files.length ? el("ul", {class: "files"}, data.files.map((f) => el("li", {},
+      el("span", {class: "mono", text: f}), el("a", {href: `api/jobs/${encodeURIComponent(job.id)}/files/${f.split("/").map(encodeURIComponent).join("/")}`, download: ""}, "Download")))) :
+      el("p", {class: "muted", text: "This job stored no output files."}));
+  } catch (e) { out.replaceChildren(el("p", {class: "msg err", text: e.message})); }
 }
 
-function select(id) {
-  selected = id;
-  lastLogLength = -1;
-  $("log").textContent = "";
-  $("d-action-msg").hidden = true;
-  history.replaceState(null, "", "#" + id);
-  refresh().then(refreshLog);
-}
-
-let armed = null;
-for (const button of document.querySelectorAll("button[data-action]")) {
-  button.addEventListener("click", async () => {
-    const action = button.dataset.action;
-    if (action === "cancel" && armed !== button) {  // two clicks to cancel, no browser dialog
-      armed = button; button.classList.add("armed"); button.textContent = "Click again to cancel";
-      setTimeout(() => { armed = null; button.classList.remove("armed"); button.textContent = "Cancel"; }, 4000);
-      return;
-    }
-    armed = null; button.classList.remove("armed"); button.textContent = action[0].toUpperCase() + action.slice(1);
-    const msg = $("d-action-msg");
-    try {
-      const response = await fetch(`/api/jobs/${encodeURIComponent(selected)}/${action}`,
-                                   { method: "POST", headers: { "X-GPURelay-Action": "1" } });
-      const body = await response.json();
-      msg.hidden = response.ok;
-      msg.textContent = response.ok ? "" : body.detail;
-    } catch (err) { msg.hidden = false; msg.textContent = String(err.message || err); }
-    refresh();
+// ---------------------------------------------------------------- Submit
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
   });
 }
+function submitView() {
+  const s = submitState;
+  const head = el("header", {class: "page"}, el("div", {}, el("h1", {text: "Submit a job"}),
+    el("p", {class: "muted", text: "Pick an unmodified script or notebook. GPU Relay checks which parts can resume after a session ends."})));
+  if (!owner()) { render(head, viewOnlyNote()); return; }
+  const input = el("input", {type: "file", accept: ".py,.ipynb", id: "file", hidden: true, onchange: (ev) => pick(ev.target.files[0])});
+  const choose = () => input.click();
+  let left;
+  if (!s) {
+    const drop = el("div", {class: "drop", ondragover: (ev) => { ev.preventDefault(); drop.classList.add("over"); },
+      ondragleave: () => drop.classList.remove("over"), ondrop: (ev) => { ev.preventDefault(); drop.classList.remove("over"); pick(ev.dataTransfer.files[0]); }},
+      el("strong", {text: "Drop a .py or .ipynb file here"}), el("span", {class: "muted", text: "or"}),
+      el("button", {type: "button", class: "btn primary", onclick: choose}, "Choose file"), input);
+    render(head, drop);
+    return;
+  }
+  const a = s.analysis;
+  left = el("div", {style: "display:flex;flex-direction:column;gap:18px;min-width:0"},
+    el("section", {class: "card", "aria-label": "File", style: "flex-direction:row;flex-wrap:wrap;align-items:center"},
+      el("div", {style: "flex:1;min-width:0;display:flex;flex-direction:column"}, el("strong", {text: s.file.name}),
+        el("span", {class: "small muted", text: `${(s.file.size / 1024).toFixed(1)} KB${a ? ` · ${s.lines} lines` : ""}`})),
+      el("button", {type: "button", class: "btn", onclick: choose}, "Choose another file"), input),
+    s.error ? el("div", {class: "banner bad", role: "alert"}, el("div", {}, el("span", {text: s.error}))) : null,
+    !a && !s.error ? el("p", {class: "muted", text: "Checking which parts can resume…"}) : null,
+    a ? analysisCard(a) : null);
+  const backends = overview ? overview.backends.map((b) => b.name) : [];
+  const form = el("form", {class: "card opts", "aria-label": "Job options", onsubmit: (ev) => { ev.preventDefault(); doSubmit(ev.currentTarget); }},
+    field("jname", "Name", el("input", {id: "jname", name: "name", type: "text", value: s.file.name.replace(/\.(py|ipynb)$/, ""), maxlength: "100"})),
+    field("jprefer", "Run on", el("select", {id: "jprefer", name: "prefer"}, el("option", {value: ""}, "Best available"), backends.map((n) => el("option", {value: n}, `${backendLabel(n)} only`)))),
+    field("jest", "Expected GPU time (optional)", el("input", {id: "jest", name: "estimate", type: "text", placeholder: "e.g. 12h"}),
+      el("span", {class: "small muted", text: "Helps plan around weekly limits. Learned automatically after the first session."})),
+    el("details", {}, el("summary", {style: "cursor:pointer;font-weight:600;font-size:13px"}, "More options"),
+      el("div", {style: "display:flex;flex-direction:column;gap:14px;margin-top:12px"},
+        field("jprio", "Priority", el("input", {id: "jprio", name: "priority", type: "number", value: "0", min: "-1000", max: "1000"})),
+        field("jdata", "Data (one per line)", el("textarea", {id: "jdata", name: "data", placeholder: "kaggle:owner/dataset\nhf:owner/repo\nurl:…"}),
+          el("span", {class: "small muted", text: "kaggle:, hf: or url: sources are downloaded inside each GPU session."})),
+        field("jreq", "requirements.txt (optional)", el("input", {id: "jreq", name: "requirements", type: "file", accept: ".txt"})))),
+    a && a.overall === "RESTART_ONLY" ? el("label", {class: "check"}, el("input", {type: "checkbox", name: "accept"}),
+      "Submit anyway: this job has no safe points, so an interruption restarts it from the beginning.") : null,
+    el("button", {type: "submit", class: "btn primary", disabled: !a || s.busy}, s.busy ? "Submitting…" : "Submit job"),
+    el("p", {class: "msg", id: "sub-msg", role: "status"}),
+    el("p", {class: "small muted", text: "The job is packed and uploaded to your private storage repo. Nothing runs until the controller picks it up."}));
+  render(head, el("div", {class: "two"}, left, form));
+}
+function field(id, label, ...controls) { return el("div", {class: "field"}, el("label", {for: id, text: label}), controls); }
+function analysisCard(a) {
+  const levelText = {FULL: "Fully resumable", PARTIAL: "Partly resumable", RESTART_ONLY: "Restarts from scratch"}[a.overall] || a.overall;
+  const notes = [...a.risks.map((f) => ["Risk", f]), ...a.suggestions.map((f) => ["Suggestion", f])];
+  return el("section", {class: "card", "aria-labelledby": "an-h"},
+    el("div", {style: "display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between"}, el("h2", {id: "an-h", text: "Resumability check"}), el("span", {class: `lvl lvl-${a.overall}`, text: levelText})),
+    a.blocks.length ? el("div", {class: "scroll"}, el("table", {},
+      el("thead", {}, el("tr", {}, ["Lines", "Resume", "How"].map((t) => el("th", {scope: "col", text: t})))),
+      el("tbody", {}, a.blocks.map((b) => el("tr", {},
+        el("td", {style: "white-space:nowrap", text: `${b.cell ? `cell ${b.cell}, ` : ""}${b.lines[0]}–${b.lines[1]}`}),
+        el("td", {}, el("span", {class: `lvl lvl-${b.level}`, text: b.level === "RESTART_ONLY" ? "Restart" : b.level[0] + b.level.slice(1).toLowerCase()})),
+        el("td", {}, [b.loops.map((l) => l.header).join("; ") || b.statement, b.covered_by.length ? ` · ${b.covered_by.map((c) => c.replace(/^[A-Z] \((.*)\)$/, "$1")).join(", ")}` : "", ...b.notes.map((n) => ` · ${n}`)].join("")))))))
+      : el("p", {class: "muted", text: `${a.simple_statements} short statements: each one is a safe point.`}),
+    notes.length ? el("div", {style: "display:flex;flex-direction:column;gap:6px"}, el("strong", {text: "Notes (not applied)"}),
+      notes.map(([kind, f]) => el("span", {class: "small", text: `${kind}${f.line ? ` (line ${f.line})` : ""}: ${f.message}`}))) : null);
+}
+async function pick(file) {
+  if (!file) return;
+  submitState = {file, analysis: null, error: null, busy: false};
+  show();
+  try {
+    if (file.size > 20 * 1024 * 1024) throw new Error("The file is larger than 20 MB.");
+    submitState.content = await readFile(file);
+    const r = await post("api/analyze", {filename: file.name, content: submitState.content});
+    if (submitState.file !== file) return;
+    submitState.analysis = r.analysis; submitState.lines = r.lines;
+  } catch (e) { if (submitState.file === file) submitState.error = e.message; }
+  show();
+}
+async function doSubmit(form) {
+  const s = submitState, msg = document.getElementById("sub-msg");
+  const f = new FormData(form);
+  const reqFile = form.querySelector("#jreq").files[0];
+  s.busy = true; form.querySelector("button[type=submit]").disabled = true; msg.className = "msg"; msg.textContent = "Uploading…";
+  try {
+    const body = {filename: s.file.name, content: s.content, name: f.get("name") || null, prefer: f.get("prefer") || null,
+      estimate: f.get("estimate") || null, priority: Number(f.get("priority") || 0),
+      data: String(f.get("data") || "").split("\n").map((x) => x.trim()).filter(Boolean), accept_restart_only: f.get("accept") === "on"};
+    if (reqFile) body.requirements = await reqFile.text();
+    const r = await post("api/submit", body);
+    submitState = null;
+    location.hash = `#/job/${encodeURIComponent(r.job_id)}`;
+  } catch (e) { s.busy = false; msg.className = "msg err"; msg.textContent = e.message; form.querySelector("button[type=submit]").disabled = false; }
+}
 
-if (location.hash.length > 1) selected = decodeURIComponent(location.hash.slice(1));
-refresh().then(refreshLog);
-setInterval(refresh, 5000);
-setInterval(refreshLog, 8000);
+// ---------------------------------------------------------------- Budget
+function budgetView() {
+  const sections = overview.backends.map((b) => {
+    const title = el("div", {style: "display:flex;flex-wrap:wrap;align-items:baseline;gap:12px"},
+      el("h2", {style: "margin-right:auto", text: backendLabel(b.name, b.gpu)}),
+      el("span", {class: "small muted", text: b.budget_h ? `rolling 7-day window · ${hours(b.budget_h)}` : b.automated ? "no fixed limit" : "manual, no fixed quota"}));
+    const nums = el("div", {style: "display:flex;flex-wrap:wrap;gap:28px"},
+      stat("Used", hours(b.used_h), "last 7 days"),
+      b.budget_h ? stat("Left", hours(Math.max(0, b.remaining_h ?? 0)), b.estimated ? "estimated" : "corrected by you") : null,
+      b.next_reset ? stat("Next hours free up", when(b.next_reset), "") : null);
+    const max = Math.max(0.1, ...b.daily_h);
+    const dayNames = b.daily_h.map((_, i) => i === 6 ? "Today" : new Date(Date.now() - (6 - i) * 86400000).toLocaleDateString(undefined, {weekday: "short"}));
+    const chart = el("div", {},
+      el("div", {class: "chart", role: "img", "aria-label": `GPU hours per day: ${b.daily_h.map((h, i) => `${dayNames[i]} ${h.toFixed(1)}`).join(", ")}`},
+        b.daily_h.map((h, i) => el("span", {class: i === 6 ? "today" : "", style: `height:${(100 * h) / max}%`, title: `${dayNames[i]}: ${hours(h)}`}))),
+      el("div", {class: "days"}, dayNames.map((d) => el("span", {text: d}))));
+    const correct = owner() && b.budget_h ? el("form", {style: "display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;padding-top:14px;border-top:1px solid var(--line-soft)",
+      onsubmit: async (ev) => {
+        ev.preventDefault();
+        const input = ev.currentTarget.querySelector("input"), msg = ev.currentTarget.querySelector(".msg");
+        try { await post(`api/quota/${encodeURIComponent(b.name)}`, {used: input.value.trim()}); msg.className = "msg good"; msg.textContent = "Saved."; input.value = ""; await refreshShell(); }
+        catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+      }},
+      el("div", {class: "field", style: "flex:1 1 260px"}, el("label", {for: `fix-${b.name}`, text: `${backendLabel(b.name)}'s own page shows a different number?`}),
+        el("input", {id: `fix-${b.name}`, type: "text", placeholder: "Hours used, e.g. 12.5h", required: true})),
+      el("button", {type: "submit", class: "btn"}, "Correct"), el("span", {class: "msg", role: "status"})) : null;
+    return el("section", {class: "card", "aria-label": backendLabel(b.name)}, title, nums, chart, correct);
+  });
+  render(el("header", {class: "page"}, el("div", {}, el("h1", {text: "GPU budget"}),
+    el("p", {class: "muted", text: "Free tiers limit GPU hours. GPU Relay plans jobs around what is left and never starts a session it cannot finish safely."}))),
+    sections.length ? sections : el("div", {class: "card empty", text: "No GPU platforms are set up."}));
+}
+
+// ---------------------------------------------------------------- Settings
+async function settingsView() {
+  const s = await api("api/settings");
+  const yes = (v, a, b) => el("span", {class: v ? "ok" : "no", text: v ? a : b});
+  const names = {kaggle: "Kaggle", colab: "Colab (manual)", lightning: "Lightning AI", local: "This computer (CPU)"};
+  const rows = s.backends.map((b) => el("tr", {},
+    el("td", {text: names[b.name] || b.name}),
+    el("td", {}, b.enabled ? el("span", {class: "ok", text: "On"}) : el("span", {class: "muted", text: "Off"})),
+    el("td", {text: b.name === "kaggle" ? [b.account, b.gpu && b.gpu.replace("NvidiaTesla", "Tesla "), b.weekly_h && `${b.weekly_h} h/week`].filter(Boolean).join(" · ") :
+      b.name === "colab" ? "you press Run all; never automated" : b.name === "lightning" ? "off until its terms are reviewed" : s.server ? "off on the server" : "runs jobs on this computer"}),
+    el("td", {}, b.name === "kaggle" ? yes(b.credentials, "token found", "no token") : el("span", {class: "muted", text: "–"}))));
+  render(
+    el("header", {class: "page"}, el("div", {}, el("h1", {text: "Settings"}), el("p", {class: "muted", text: s.server
+      ? "This server reads its tokens and passwords from the hosting platform's secret settings. They are never shown here or stored in files."
+      : "Change these with `gpurelay init` on this computer."}))),
+    el("section", {class: "card"}, el("h2", {text: "Storage"}), el("dl", {class: "kv"},
+      el("dt", {text: "Where"}), el("dd", {text: s.storage.kind === "hf_hub" ? `Hugging Face private repo ${s.storage.repo}` : s.storage.kind}),
+      el("dt", {text: "Access token"}), el("dd", {}, yes(s.storage.token, "found", "missing")),
+      el("dt", {text: "Holds"}), el("dd", {text: "jobs, checkpoints, logs, outputs, and the server's job list backup"}))),
+    el("section", {class: "card"}, el("h2", {text: "GPU platforms"}), el("div", {class: "scroll"}, el("table", {},
+      el("thead", {}, el("tr", {}, ["Platform", "State", "Details", "Credentials"].map((t) => el("th", {scope: "col", text: t})))),
+      el("tbody", {}, rows)))),
+    el("section", {class: "card"}, el("h2", {text: "Access"}), el("dl", {class: "kv"},
+      el("dt", {text: "You are"}), el("dd", {text: me.login ? (owner() ? "the owner" : "a viewer (read-only)") : "on this computer"}),
+      el("dt", {text: "Login"}), el("dd", {text: s.server ? "required; 5 wrong tries lock a visitor out for 15 minutes" : "none (local only)"}),
+      el("dt", {text: "View-only password"}), el("dd", {text: s.viewer_access ? "on" : "off"}),
+      el("dt", {text: "Work at risk"}), el("dd", {text: `at most ${span(s.runtime.max_lost_work_s)} of GPU work per interruption`}),
+      el("dt", {text: "Version"}), el("dd", {class: "mono", text: s.version}))));
+}
+
+// ---------------------------------------------------------------- router
+function route() {
+  const hash = location.hash.replace(/^#\/?/, "");
+  if (hash.startsWith("job/")) return {name: "job", id: decodeURIComponent(hash.slice(4))};
+  return {name: ["submit", "budget", "settings"].includes(hash) ? hash : "jobs"};
+}
+async function show() {
+  const r = route();
+  setNav(r.name === "job" ? "jobs" : r.name);
+  try {
+    if (!overview) await refreshShell();
+    if (r.name === "jobs") jobsView();
+    else if (r.name === "job") await jobView(r.id);
+    else if (r.name === "submit") submitView();
+    else if (r.name === "budget") budgetView();
+    else await settingsView();
+  } catch (e) { render(errorBox(e)); }
+}
+async function tick() {
+  try { await refreshShell(); } catch (e) { return; }
+  const r = route();
+  const typing = document.activeElement && ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
+  if (typing || r.name === "submit" || r.name === "settings") return;  // never wipe what the user is doing
+  if (r.name === "job") {
+    if (outTab !== "log") return;
+    const log = document.querySelector("pre.log");  // reading older output: leave it in place
+    if (log && log.scrollTop + log.clientHeight < log.scrollHeight - 20) return;
+  }
+  await show();
+}
+window.addEventListener("hashchange", () => { if (route().name !== "job") outTab = "log"; show(); view().focus({preventScroll: true}); });
+(async () => {
+  try {
+    me = await api("api/me");
+    if (me.login) {
+      document.getElementById("logout").hidden = false;
+      document.getElementById("who").textContent = owner() ? "Logged in as owner" : "Logged in as viewer (read-only)";
+    }
+  } catch (e) { /* the page shows the error below */ }
+  await show();
+  timer = setInterval(tick, 10000);
+})();
 </script>
 </body>
 </html>

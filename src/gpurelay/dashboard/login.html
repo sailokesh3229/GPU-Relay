@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU Relay · Log in</title>
+<style>
+:root{--bg:#F3F4F6;--card:#FFFFFF;--line:#E2E5EA;--field:#CDD2DA;--ink:#15171C;--muted:#5B6270;--accent:#2952CC;--accent-ink:#FFFFFF;--bad:#B42318}
+@media (prefers-color-scheme: dark){:root{--bg:#111318;--card:#1A1D24;--line:#2A2F39;--field:#3A404C;--ink:#ECEEF2;--muted:#A3AAB8;--accent:#6E8EF0;--accent-ink:#0B1020;--bad:#F97066}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--bg);color:var(--ink);font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px;display:flex;flex-direction:column;gap:20px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px}
+h1{margin:0;font-size:22px;letter-spacing:-.02em}
+p{margin:0;color:var(--muted)}
+form{display:flex;flex-direction:column;gap:12px}
+label{font-weight:600;font-size:13px}
+input{min-height:42px;padding:0 12px;border:1px solid var(--field);border-radius:8px;background:var(--card);color:var(--ink);font:inherit}
+input:focus{outline:2px solid var(--accent);outline-offset:1px}
+button{min-height:42px;border:none;border-radius:8px;background:var(--accent);color:var(--accent-ink);font:600 14px system-ui,sans-serif;cursor:pointer}
+#err{color:var(--bad);font-weight:500;min-height:1.5em}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#2952CC"></rect><path d="M7 17h5l3-6 3 6h3" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    GPU Relay
+  </div>
+  <div>
+    <h1>Log in</h1>
+    <p>Runs ML jobs to completion across free GPU tiers.</p>
+  </div>
+  <form method="post" action="login">
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+    <span id="err" role="alert"></span>
+    <button type="submit">Log in</button>
+  </form>
+</main>
+<script>
+const e = new URLSearchParams(location.search).get("e");
+const messages = {wrong: "Wrong password.", busy: "Too many attempts. Try again in 15 minutes."};
+if (messages[e]) document.getElementById("err").textContent = messages[e];
+</script>
+</body>
+</html>

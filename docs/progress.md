@@ -741,3 +741,116 @@ cannot happen on Kaggle or Colab (Linux).
   - all 13 integration files pass (39 passed);
   - 3 unit and 13 integration tests are skipped because torch, Keras, HF and Lightning
     are not installed there (they pass on Windows).
+
+**Found later (2026-10-24), with real Kaggle data:**
+
+| found by | bug | fix |
+|---|---|---|
+| real ledger | When the controller was down while a session finished, the GPU time was counted up to the controller's next poll, not the session's end. A 42-minute session was charged 16.6 h, and the Kaggle budget showed 19.0 h used instead of 3.1 h | The end time is the session's last heartbeat plus one interval. Regression: `test_controller_downtime_is_not_charged_as_gpu_time` |
+
+## Phase W1 — Server mode (2026-10-25)
+
+Goal: run GPU Relay as a website on an always-on server (Render's free plan, see W3) that
+anyone with the password can open, from any computer.
+
+**Built:**
+- **Login** (`dashboard/auth.py`, `dashboard/login.html`):
+  - Two roles. The owner can do everything; the optional viewer can only read (for a
+    reviewer).
+  - Passwords come from environment secrets, never from files, and need at least 12
+    characters. The viewer password must differ from the owner's.
+  - The session is a signed, expiring cookie (HttpOnly, Secure, SameSite=Lax). Changing a
+    password logs everyone out.
+  - Wrong passwords are limited to 5 per visitor and 50 in total per 15 minutes.
+  - Responses carry security headers (CSP with `frame-ancestors 'none'`, nosniff,
+    no-store).
+  - `create_app` refuses to accept any Host header without a login.
+- **`gpurelay serve`** (`hosted.py`):
+  - Runs the controller as a child process (`gpurelay up`) and restarts it if it exits,
+    waiting 10 s, then 30 s, 60 s, 120 s and 300 s.
+  - Serves the dashboard on port 7860 behind the login.
+- **State backup:** a free container host loses its disk on every restart, so the job database is backed
+  up to the private storage repo (`controller/state.tar.gz`, the `export-state` archive):
+  - every 10 minutes, after the controller exits, and on shutdown;
+  - restored when the server starts with an empty home;
+  - never restored over a database that already exists.
+- **Server config:** the server turns off the local CPU backend (no jobs on the server's own
+  CPU) and desktop notifications.
+- **Shutdown:** on Linux the controller is stopped with Ctrl+C (SIGINT), so it releases its
+  lease and a restarted server takes over at once.
+- **Server files:** `deploy/server/Dockerfile` and `render.yaml` (moved there in W3).
+
+**Verification (2026-10-25, Windows):**
+- 398 unit tests pass, including 19 new ones in `test_dashboard_auth.py` and
+  `test_hosted.py`. ruff and mypy are clean.
+- Real run of `gpurelay serve` on port 7861 with local folder storage:
+  - Health check answered.
+  - Without a login, the page redirected to `/login` and the API gave 401.
+  - A wrong password was refused.
+  - The viewer could read the overview but got 403 on pause.
+  - Security headers were present.
+  - The controller child process was running.
+  - Backups were written every 20 s (the test setting).
+  - After the controller was killed, it restarted 10 s later and took over the old lease once
+    it was 3 minutes quiet.
+- The installed package (`pip install` of the built wheel into a fresh venv) runs `--help`,
+  `--version` and `analyze`.
+
+## Phase W2 — Web app screens (2026-10-25)
+
+Goal: the approved designs (Jobs, Job detail, Submit, GPU budget, Settings) as the website
+that `gpurelay serve` and `gpurelay dashboard` show.
+
+**Built:**
+- **`dashboard/index.html`**, rewritten. It is one self-contained page with no external
+  files, so it works offline, and data is inserted as text only. It follows the designs'
+  colours, has a dark mode and a narrow-screen layout, and refreshes every 10 s without
+  undoing what you are typing or reading. Screens:
+  - **Jobs:** a "needs you on Colab" banner with the notebook download, filter tabs, a job
+    table with state chips and progress bars, and budget cards.
+  - **Job detail:**
+    - Pause, resume and cancel buttons; cancel needs a second click.
+    - Four summary tiles: progress, GPU time, last checkpoint, and when the session ends.
+    - A relay timeline that draws long waits short, and a table of sessions with how each
+      one ended.
+    - Output tabs for the log, files and events.
+  - **Submit:** pick or drop a file, see the resumability check (the analyzer runs on the
+    server), and set the options: name, where to run, expected GPU time, priority, data and
+    requirements. A job with no safe points needs "Submit anyway".
+  - **GPU budget:** used, left and next reset; GPU hours per day for 7 days; and a form to
+    correct the number from Kaggle's own page.
+  - **Settings:** read-only status. It shows the storage repo, each platform and whether its
+    token was found (never the token itself), the access level and the version. On the server,
+    tokens live in the host's secret settings, so the token-entry wizard stays for the
+    desktop app.
+  - A viewer sees every screen read-only.
+- **New endpoints**, all behind the login and the custom header that blocks cross-site
+  requests:
+  - `POST /api/analyze` and `POST /api/submit`. Uploads are JSON with base64 contents
+    (20 MB limit). The file name is checked, and only `.py` or `.ipynb` files in UTF-8 are
+    accepted. `local:` data is refused because it would mean files on the server.
+  - `GET /api/jobs/{id}/files` and `GET /api/jobs/{id}/files/{name}` download a completed
+    job's outputs. Only names the store lists are served, so `..` paths get 404.
+  - `POST /api/quota/{backend}` records a budget correction.
+  - `GET /api/settings` returns the status above, with no secrets.
+  - The overview now has GPU hours per day (`daily_h`). Job detail has checkpoint count and
+    last checkpoint, entry, and session deadline (`StateDB.last_checkpoint`).
+- `dashboard/forms.py` holds the request models, upload checks and `daily_usage`, which
+  splits sessions across days.
+
+**Verification (2026-10-25, Windows):**
+- 418 unit tests pass, including 20 new ones in `test_dashboard_screens.py`. ruff and mypy
+  are clean.
+- In Chrome against the live Kaggle stress run (`gpurelay dashboard` on its home):
+  - All five screens showed real data.
+  - The finished job showed its 2 Kaggle sessions (handoff at checkpoint 11, finished at 16).
+  - Its 3 output files were listed from the Hugging Face store and downloaded; a `..` path
+    gave 404.
+  - Uploading `examples/quickstart.py` gave "Fully resumable" with its loop. Nothing was
+    submitted.
+- Fixed after looking at the screens:
+  - Budgets over 10 h were rounded to whole hours ("30 h of 30 h left" after 20 minutes of
+    use).
+  - A 2-day wait between sessions squeezed the timeline into slivers.
+  - The finished-job note showed a terminal command.
+  - Platforms that are off on purpose showed "Off" in red.

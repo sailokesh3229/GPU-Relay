@@ -68,8 +68,16 @@ class FakeBackend:
         return None
 
     def finish(
-        self, job_id: str, segment_id: str, code: int, state: str, message: str = ""
+        self,
+        job_id: str,
+        segment_id: str,
+        code: int,
+        state: str,
+        message: str = "",
+        at: float | None = None,
     ) -> None:
+        from datetime import datetime, timezone
+
         from gpurelay.models import RuntimeState, StatusFile, utcnow
         from gpurelay.storage.layout import status_key
 
@@ -77,7 +85,7 @@ class FakeBackend:
             job_id=job_id,
             segment_id=segment_id,
             state=RuntimeState(state),
-            heartbeat_at=utcnow(),
+            heartbeat_at=utcnow() if at is None else datetime.fromtimestamp(at, timezone.utc),
             message=message,
         )
         self.storage.put_bytes(status.model_dump_json().encode(), status_key(job_id))

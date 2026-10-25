@@ -245,6 +245,16 @@ class StateDB:
                 (job_id, seq, segment_id, created_at.isoformat() if created_at else None),
             )
 
+    def last_checkpoint(self, job_id: str) -> tuple[int, str | None] | None:
+        """``(seq, created_at ISO or None)`` of the job's newest recorded checkpoint."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT seq, created_at FROM checkpoints WHERE job_id = ? "
+                "ORDER BY seq DESC LIMIT 1",
+                (job_id,),
+            ).fetchone()
+        return None if row is None else (int(row["seq"]), row["created_at"])
+
     def checkpoint_count(self, job_id: str) -> int:
         with self._lock:
             row = self._conn.execute(

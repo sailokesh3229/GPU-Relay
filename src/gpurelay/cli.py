@@ -832,5 +832,32 @@ def dashboard(
     uvicorn.run(create_app(ctx, allowed_hosts=allowed), host=host, port=port, log_level="warning")
 
 
+@app.command()
+def serve(
+    port: Annotated[int, typer.Option("--port", envvar="PORT", help="Port to listen on.")] = 7860,
+    host: Annotated[str, typer.Option("--host", help="Interface to listen on.")] = "0.0.0.0",
+) -> None:
+    """Run the controller and the dashboard (with a login) on an always-on server."""
+    import logging
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [gpurelay] %(message)s")
+    for noisy in ("httpx", "httpcore", "huggingface_hub", "hf_xet", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+    try:
+        import uvicorn  # noqa: F401
+    except ImportError as exc:
+        _fail(RuntimeError(f"the server needs extra packages ({exc.name}): "
+                           "pip install 'gpurelay[dashboard]'"))  # fmt: skip
+    from gpurelay.config import gpurelay_home
+    from gpurelay.errors import GpuRelayError
+    from gpurelay.hosted import serve as run_server
+
+    console.print(f"[cyan]GPU Relay server on port {port} (home {gpurelay_home()})[/cyan]")
+    try:
+        run_server(host, port, gpurelay_home())
+    except GpuRelayError as exc:
+        _fail(exc)
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

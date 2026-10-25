@@ -1,0 +1,26 @@
+# Render Blueprint: GPU Relay server on Render's free plan (plan W3).
+# Render > New > Blueprint > this repo. It asks for the values marked `sync: false`; they are
+# stored as Render secrets, never in this repo.
+services:
+  - type: web
+    name: gpu-relay
+    runtime: docker
+    plan: free
+    dockerfilePath: ./deploy/server/Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: GPURELAY_HF_REPO
+        value: sailokeshp/gpurelay-store
+      - key: HF_TOKEN
+        sync: false
+      - key: KAGGLE_API_TOKEN
+        sync: false
+      - key: GPURELAY_OWNER_PASSWORD
+        sync: false
+      - key: GPURELAY_VIEWER_PASSWORD
+        sync: false
+      # Signs login cookies; a stable value keeps people logged in across restarts and sleep.
+      - key: GPURELAY_SESSION_KEY
+        generateValue: true

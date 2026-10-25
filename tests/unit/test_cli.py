@@ -15,7 +15,7 @@ runner = CliRunner()
 IMPLEMENTED = {
     "init",
     "run-local", "analyze", "submit", "up", "status", "logs", "quota", "pause", "resume",
-    "cancel", "fetch", "colab", "dashboard", "export-state", "import-state",
+    "cancel", "fetch", "colab", "dashboard", "export-state", "import-state", "serve",
 }  # fmt: skip
 
 # Minimal valid arguments for invoking each command.
