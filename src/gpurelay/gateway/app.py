@@ -126,11 +126,19 @@ def _client_id(request: Request) -> str:
 
 
 def _same_origin(request: Request) -> bool:
-    """A form post must come from this site (no sign-in or sign-out from other sites)."""
-    origin = request.headers.get("origin") or request.headers.get("referer")
-    if not origin:
-        return True  # old browsers and tools; the cookie is SameSite=Lax anyway
-    return urlsplit(origin).netloc == request.headers.get("host", "")
+    """A post must not come from another site. Browsers differ in what they send (Origin,
+    Referer, ``Origin: null`` under strict privacy settings), so: a real Origin decides; else a
+    Referer decides; with neither, the post is allowed. That is still safe: the session cookie
+    is SameSite=Lax, so posts from other sites never carry it, and the JSON API cannot be
+    called from other sites at all (its content type needs a CORS preflight)."""
+    host = request.headers.get("host", "")
+    origin = request.headers.get("origin", "").strip()
+    if origin and origin != "null":
+        return urlsplit(origin).netloc == host
+    referer = request.headers.get("referer", "").strip()
+    if referer:
+        return urlsplit(referer).netloc == host
+    return True
 
 
 def _page(name: str) -> str:

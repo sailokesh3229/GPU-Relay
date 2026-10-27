@@ -101,9 +101,28 @@ def test_cross_site_posts_are_refused(tmp_path: Path) -> None:
                            headers={"origin": "https://evil.example"})  # fmt: skip
     assert response.status_code == 403
     assert client.get("/api/me").json()["user"] is None
+    other_site = {"origin": "null", "referer": "https://evil.example/page"}
     null = client.post("/signin", data={"email": "a@example.com", "password": PW},
-                       headers={"origin": "null"})  # fmt: skip
-    assert null.status_code == 403  # sandboxed frames send null: never trusted
+                       headers=other_site)  # fmt: skip
+    assert null.status_code == 403  # "null" falls back to the Referer, which is another site
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"origin": "http://testserver"},  # Chrome, Edge, Firefox, Safari
+        {"origin": "null"},  # strict privacy settings, no Referer
+        {"origin": "null", "referer": "http://testserver/signup"},  # Brave-like
+        {"referer": "http://testserver/signup"},  # older Safari and Firefox: no Origin
+        {},  # tools, or a browser that sends neither
+    ],
+)
+def test_every_browser_can_sign_up(tmp_path: Path, headers: dict[str, str]) -> None:
+    client = _client(_settings(tmp_path))
+    data = {"email": "ada@example.com", "password": PW, "confirm": PW}
+    response = client.post("/signup", data=data, headers=headers)
+    assert response.status_code == 303 and response.headers["location"] == "/"
+    assert client.get("/api/me").json()["user"]["email"] == "ada@example.com"
 
 
 def test_browsers_send_a_real_origin_on_this_sites_forms(tmp_path: Path) -> None:
