@@ -887,7 +887,7 @@ def serve(
         _fail(exc)
 
 
-@app.command(hidden=True)  # the multi-user website, in progress (plan M1-M5)
+@app.command()
 def gateway(
     port: Annotated[int, typer.Option("--port", envvar="PORT", help="Port to listen on.")] = 7860,
     host: Annotated[str, typer.Option("--host", help="Interface to listen on.")] = "0.0.0.0",

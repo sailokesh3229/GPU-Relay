@@ -1,6 +1,7 @@
-# Render Blueprint: GPU Relay server on Render's free plan (plan W3).
+# Render Blueprint: the GPU Relay website on Render's free plan (docs/multi-user.md).
 # Render > New > Blueprint > this repo. It asks for the values marked `sync: false`; they are
-# stored as Render secrets, never in this repo.
+# stored as Render secrets, never in this repo. Users bring their own platform tokens on the
+# site's Set up page; the server itself holds none.
 services:
   - type: web
     name: gpu-relay
@@ -11,28 +12,36 @@ services:
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
-      - key: GPURELAY_HF_REPO
-        value: sailokeshp/gpurelay-store
-      - key: HF_TOKEN
+      # Where accounts and sealed tokens live: a Postgres URL (Neon or Supabase free plans).
+      - key: DATABASE_URL
         sync: false
-      - key: KAGGLE_API_TOKEN
-        sync: false
-      - key: GPURELAY_OWNER_PASSWORD
-        sync: false
-      # Anyone with the URL can look (read-only); only the owner can make changes.
-      - key: GPURELAY_PUBLIC_VIEW
-        value: "1"
-      # Render runs one instance: a new deploy takes the controller role at once (the old
-      # controller sees the takeover within one tick and stops) instead of waiting 15 min.
-      - key: GPURELAY_TAKEOVER
-        value: "1"
-      # Colab: GPU Relay prepares a resume notebook and notifies you; you press Run all.
-      # COLAB_FIRST asks for Colab before Kaggle and Modal; without Run all within
-      # GPURELAY_COLAB_WAIT_MIN minutes (default 30) the job goes to them instead.
-      - key: GPURELAY_COLAB
-        value: "1"
-      - key: GPURELAY_COLAB_FIRST
-        value: "1"
-      # Signs login cookies; a stable value keeps people logged in across restarts and sleep.
+      # Signs sign-in cookies; stable, so people stay signed in across restarts and sleep.
       - key: GPURELAY_SESSION_KEY
         generateValue: true
+      # Seals users' platform tokens. Never change it: stored tokens would become unreadable.
+      - key: GPURELAY_VAULT_KEY
+        generateValue: true
+      # Accounts allowed in all, users' GPU Relay running at once, unfinished jobs per user.
+      # The free plan has 512 MB: about two users' GPU Relay at a time.
+      - key: GPURELAY_MAX_USERS
+        value: "3"
+      - key: GPURELAY_MAX_ACTIVE
+        value: "2"
+      - key: GPURELAY_MAX_JOBS
+        value: "3"
+      # Optional: sign-up needs this code (share it with the people you invite).
+      - key: GPURELAY_INVITE_CODE
+        sync: false
+      # Optional email (verification, password reset, job emails): an SMTP server.
+      - key: GPURELAY_SITE_URL
+        value: https://gpu-relay-9uuh.onrender.com
+      - key: GPURELAY_SMTP_HOST
+        sync: false
+      - key: GPURELAY_SMTP_PORT
+        value: "587"
+      - key: GPURELAY_SMTP_USER
+        sync: false
+      - key: GPURELAY_SMTP_PASSWORD
+        sync: false
+      - key: GPURELAY_MAIL_FROM
+        sync: false

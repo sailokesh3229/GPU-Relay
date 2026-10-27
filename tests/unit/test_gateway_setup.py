@@ -36,6 +36,9 @@ def test_vault_seals_per_user_and_name() -> None:
     for bad in ({}, {"GPURELAY_VAULT_KEY": "not base64!"}, {"GPURELAY_VAULT_KEY": "c2hvcnQ="}):
         with pytest.raises(ConfigError):
             Vault.from_env(bad)
+    generated = {"GPURELAY_VAULT_KEY": "r4nd0m-value-the-host-generated-for-us-123"}
+    sealed2 = Vault.from_env(generated).seal("u-1", "hf_token", HF_TOKEN)
+    assert Vault.from_env(generated).open("u-1", "hf_token", sealed2) == HF_TOKEN  # stable
 
 
 def test_user_environment_holds_only_that_users_tokens(tmp_path: Path) -> None:
@@ -121,6 +124,8 @@ def test_full_setup_keeps_tokens_sealed(site: Any) -> None:
         "/api/setup/kaggle", json={"token": KAGGLE_TOKEN, "accelerator": "NvidiaTeslaP100"}
     )
     assert response.json()["ok"]
+    kaggle_request = fake_worker.calls[-1][2]  # type: ignore[attr-defined]
+    assert kaggle_request["rotate"] is True  # the secrets dataset gets this site's HF token
     status = client.get("/api/setup").json()
     assert status["ready"] and status["steps"]["hf"]["repo"] == "ada/gpurelay-store"
     assert status["steps"]["kaggle"] | {"saved_at": 0} == {

@@ -9,8 +9,9 @@ uninterrupted run.
 
 You keep writing ordinary Python scripts or notebooks. Most of them need no changes.
 
-**Live demo:** https://gpu-relay-9uuh.onrender.com (anyone can look; only the owner can change
-anything. A free server: the first visit after a quiet spell takes about a minute to wake it.)
+**Website:** https://gpu-relay-9uuh.onrender.com: sign up, connect your own Hugging Face and
+Kaggle accounts, and relay your jobs. Each account sees only its own jobs. (A free server: the
+first visit after a quiet spell takes about a minute to wake it.)
 
 ![Jobs on the live website](docs/screenshots/jobs.jpg)
 
@@ -65,26 +66,36 @@ Download `GPU-Relay-<version>-windows-x64.zip` from the
   `requirements.txt` there, as cloud sessions do. Nothing else is installed on your computer:
   cloud jobs run on the platforms, with their libraries installed inside each session.
 
-### 2. Always-on website (server)
+### 2. The website (many users)
 
-`gpurelay serve` runs the controller and the same web app on a server, so jobs keep relaying
-while your laptop is off. The repo includes a one-click setup for Render's free plan:
+`gpurelay gateway` runs a website with accounts: each person signs up, connects their own
+platforms, and gets their own GPU Relay, so jobs keep relaying while their laptop is off.
+Nobody sees anyone else's jobs or tokens, and the server holds no platform tokens of its own.
 
-1. Push this repo to GitHub.
-2. In Render, choose **New → Blueprint** and pick the repo (`render.yaml` sets it up).
-3. Enter the secrets Render asks for: `HF_TOKEN`, `KAGGLE_API_TOKEN` and
-   `GPURELAY_OWNER_PASSWORD` (12+ characters).
+**What each user needs** (the site lists it too; details in [docs/multi-user.md](docs/multi-user.md)):
 
-Anyone with the URL can look (`GPURELAY_PUBLIC_VIEW=1`); the owner logs in to submit, pause
-or cancel. To add Modal on the server, set `GPURELAY_MODAL=1` (your confirmation of Modal's
-terms), `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in the host's environment settings.
-`GPURELAY_MODAL_PAID_CAP` (USD a month, default 0) allows paid Modal time after the free
-credit; set Modal's own workspace spending limit too. `GPURELAY_COLAB=1` turns on Colab: the website
-notifies you and offers the resume notebook to download; `GPURELAY_COLAB_FIRST=1` asks for
-Colab before Kaggle and Modal (`GPURELAY_COLAB_WAIT_MIN`, default 30, is how long it waits
-for Run all). The server's disk is wiped when it restarts or sleeps, so it backs up its job list
-to your private storage repo and restores it on start. The desktop app can show your server
-("My server" in its setup) and notify you about its jobs.
+1. a GPU Relay account (email, a password of 12+ characters, the invite code if asked);
+2. a Hugging Face account and a token with **write** access (storage for jobs and checkpoints);
+3. for automatic free GPUs: a Kaggle account with a **verified phone** and its API token;
+4. optional: a Modal account with a payment method and its token ($30 free a month);
+5. optional: Colab, with a `GPURELAY_HF_TOKEN` secret holding the Hugging Face token;
+6. the job: a `.py` or `.ipynb`, plus `requirements.txt` if needed.
+
+Each token is checked with its platform before it is kept, stored encrypted, and never shown
+again. Optional email confirms addresses, resets passwords and tells you when a job needs you
+on Colab, finishes or fails.
+
+**Running the site** on Render's free plan (`render.yaml`):
+
+1. Create a free Postgres database (Neon or Supabase) and copy its URL.
+2. In Render, choose **New → Blueprint** and pick the repo.
+3. Enter `DATABASE_URL`; optionally `GPURELAY_INVITE_CODE` and the SMTP settings for email.
+   Render generates the session and vault keys.
+
+The free plan has room for about two users' GPU Relay at a time (`GPURELAY_MAX_ACTIVE`). The
+server's disk is wiped when it restarts or sleeps: accounts live in Postgres and each user's
+jobs in their own storage repo, so nothing is lost. All settings: [docs/multi-user.md](docs/multi-user.md).
+The single-owner server of earlier versions is still available as `gpurelay serve`.
 
 ### 3. Command line
 
@@ -169,7 +180,8 @@ GPU Relay follows the platforms' terms:
 | command | what it does |
 |---|---|
 | `gpurelay app` | the desktop app (window, tray, notifications, setup wizard) |
-| `gpurelay serve` | controller + web app with a login, for a server |
+| `gpurelay gateway` | the multi-user website: accounts, each user's own GPU Relay |
+| `gpurelay serve` | controller + web app with one owner login, for a server |
 | `gpurelay init [--local]` | config, storage, Kaggle credentials (or local-only setup) |
 | `gpurelay analyze <file> [--probe]` | resumability report, risks, GPU-time suggestions |
 | `gpurelay submit <file> [--max-paid USD]` | upload a job (script or notebook); paid GPU time allowed for it (default 0: free only) |

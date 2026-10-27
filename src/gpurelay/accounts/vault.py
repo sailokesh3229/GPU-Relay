@@ -1,7 +1,9 @@
 """Encryption of users' platform tokens at rest (plan M2).
 
 AES-256-GCM with a key that exists only in the server's environment
-(``GPURELAY_VAULT_KEY``: 32 random bytes, base64). Each ciphertext is bound to its user and
+(``GPURELAY_VAULT_KEY``: 32 random bytes in base64, or any random value of 32+ characters,
+such as one the host generates, from which the key is derived). Losing or changing it makes
+the stored tokens unreadable: users then add them again. Each ciphertext is bound to its user and
 name (associated data), so a row copied to another user or another name does not decrypt.
 Stored as ``v1:<base64 nonce + ciphertext>``; the version allows a later key rotation.
 """
@@ -10,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import os
 import secrets
 from collections.abc import Mapping
@@ -20,6 +23,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from gpurelay.errors import ConfigError, GpuRelayError
 
 ENV_VAULT_KEY = "GPURELAY_VAULT_KEY"
+MIN_GENERATED = 32  # characters of a host-generated secret (Render's generateValue)
 PREFIX = "v1:"
 
 
@@ -48,9 +52,17 @@ class Vault:
                 'vault import new_key; print(new_key())")'
             )
         try:
-            return cls(base64.b64decode(raw, validate=True))
+            key = base64.b64decode(raw, validate=True)
         except binascii.Error:
-            raise ConfigError(f"{ENV_VAULT_KEY} is not valid base64") from None
+            key = b""
+        if len(key) == 32:
+            return cls(key)
+        if len(raw) >= MIN_GENERATED:  # e.g. a value the host generated: derive the key
+            return cls(hashlib.sha256(b"gpurelay vault\0" + raw.encode()).digest())
+        raise ConfigError(
+            f"{ENV_VAULT_KEY} must be 32 random bytes in base64, or a random value of "
+            f"{MIN_GENERATED}+ characters"
+        )
 
     @staticmethod
     def _aad(user_id: str, name: str) -> bytes:

@@ -146,7 +146,9 @@ def setup_router(
             new = {KAGGLE: _kaggle_token(form.token)} if form.token else {}
             if not new and KAGGLE not in spaces.saved(uid):
                 raise GpuRelayError("paste your Kaggle API token (kaggle.com > Settings > API)")
-            return spaces.run_step(uid, "kaggle", {"accelerator": form.accelerator}, new)
+            # rotate: the secrets dataset gets the Hugging Face token this site holds now
+            request_ = {"accelerator": form.accelerator, "rotate": True}
+            return spaces.run_step(uid, "kaggle", request_, new)
 
         return await guarded(request, work)
 
