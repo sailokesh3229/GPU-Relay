@@ -66,7 +66,9 @@ HEADERS = {
     "style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; "
     "form-action 'self'",
     "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
+    # same-origin, not no-referrer: with no-referrer browsers send "Origin: null" on form
+    # posts, which the same-origin check must refuse. Other sites still get no referrer.
+    "Referrer-Policy": "same-origin",
     "Cache-Control": "no-store",
 }
 

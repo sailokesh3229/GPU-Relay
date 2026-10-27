@@ -101,6 +101,18 @@ def test_cross_site_posts_are_refused(tmp_path: Path) -> None:
                            headers={"origin": "https://evil.example"})  # fmt: skip
     assert response.status_code == 403
     assert client.get("/api/me").json()["user"] is None
+    null = client.post("/signin", data={"email": "a@example.com", "password": PW},
+                       headers={"origin": "null"})  # fmt: skip
+    assert null.status_code == 403  # sandboxed frames send null: never trusted
+
+
+def test_browsers_send_a_real_origin_on_this_sites_forms(tmp_path: Path) -> None:
+    """A browser sends "Origin: null" on form posts under Referrer-Policy: no-referrer, which
+    refused every sign-in (seen live); same-origin makes it send the site's origin."""
+    client = _client(_settings(tmp_path))
+    assert client.get("/signin").headers["referrer-policy"] == "same-origin"
+    response = _signup(client, "ada@example.com")
+    assert response.status_code == 303
 
 
 def test_pages_and_headers(tmp_path: Path) -> None:
