@@ -887,5 +887,32 @@ def serve(
         _fail(exc)
 
 
+@app.command(hidden=True)  # the multi-user website, in progress (plan M1-M5)
+def gateway(
+    port: Annotated[int, typer.Option("--port", envvar="PORT", help="Port to listen on.")] = 7860,
+    host: Annotated[str, typer.Option("--host", help="Interface to listen on.")] = "0.0.0.0",
+    insecure_cookie: Annotated[
+        bool, typer.Option("--insecure-cookie", help="Allow plain http (local testing only).")
+    ] = False,
+) -> None:
+    """Run the multi-user website: accounts (DATABASE_URL) in front of each user's jobs."""
+    try:
+        import uvicorn
+    except ImportError as exc:
+        _fail(RuntimeError(f"the website needs extra packages ({exc.name}): "
+                           "pip install 'gpurelay[dashboard,server]'"))  # fmt: skip
+    from gpurelay.errors import GpuRelayError
+    from gpurelay.gateway.app import GatewaySettings, create_gateway
+
+    try:
+        settings = GatewaySettings.from_env()
+    except GpuRelayError as exc:
+        _fail(exc)
+    settings.secure_cookie = not insecure_cookie
+    console.print(f"[cyan]GPU Relay website on port {port}[/cyan]")
+    uvicorn.run(create_gateway(settings), host=host, port=port, log_level="warning",
+                proxy_headers=True)  # fmt: skip
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

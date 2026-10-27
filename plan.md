@@ -185,6 +185,35 @@ Suggested first prompt to Claude Code:
 
 ---
 
+## Multi-user website (phases M1-M5, one at a time; the owner verifies each)
+
+Replaces the single owner login. Anyone can sign up (up to a limit), connect their own
+accounts, and relay their own jobs; nobody sees anyone else's jobs or tokens.
+
+Design. The Kaggle, Modal and Hugging Face libraries read credentials for the whole process,
+so users never share a process: a **gateway** (accounts, token vault, setup checklist) runs
+one **per-user child** (that user's web app + controller, with only that user's tokens in its
+environment, its home and state backup in that user's own storage repo) and forwards the
+user's requests to it. The server never runs submitted code (only the static analyzer).
+
+- **M1 Accounts.** Users in Postgres (`DATABASE_URL`; SQLite for tests and local runs).
+  Email + password (scrypt), signed session cookies bound to a per-user epoch (password
+  change or sign-out-everywhere invalidates them), rate limits, sign-up limit
+  (`GPURELAY_MAX_USERS`, default 3) and optional invite code. Sign-up, sign-in, sign-out,
+  account page with the setup checklist. Owner/viewer passwords and the public view go.
+- **M2 Token vault + web setup.** Each user's tokens encrypted at rest (key only in the
+  server's environment), checked against the platform before saving, never shown again;
+  replace or delete any time. Setup wizard on the website (HF, Kaggle, Modal, Colab, limits).
+- **M3 Per-user controllers.** The gateway starts a user's child on sign-in or while their
+  jobs run, forwards `/api/*` to it, stops it when idle (memory: 2-3 active users on the free
+  plan), restores and backs up its state in the user's own repo.
+- **M4 Account care.** Email verification and password reset (SMTP settings), delete account
+  (tokens, sessions, children; the user's repo stays theirs), per-user job limits.
+- **M5 Deploy.** Postgres on a free host, Render settings, moving the current owner's jobs
+  into their account, README and docs.
+
+---
+
 ## Phase checklist summary
 
 | Phase | Outcome | Key proof |
@@ -199,3 +228,4 @@ Suggested first prompt to Claude Code:
 | 7 | Colab (manual) | Kaggle → Colab relay completes |
 | 8 | Dashboard + hardening | README quick start works end to end |
 | 9 | Stretch features | per-feature tests |
+| M1-M5 | Multi-user website | two users never see each other's jobs or tokens |

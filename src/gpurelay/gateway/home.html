@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU Relay</title>
+<style>
+:root{--bg:#F3F4F6;--card:#FFFFFF;--line:#E2E5EA;--ink:#15171C;--muted:#5B6270;--accent:#2952CC;--accent-ink:#FFFFFF;--soft:#EEF2FC;--good:#067647}
+@media (prefers-color-scheme: dark){:root{--bg:#111318;--card:#1A1D24;--line:#2A2F39;--ink:#ECEEF2;--muted:#A3AAB8;--accent:#6E8EF0;--accent-ink:#0B1020;--soft:#1E2433;--good:#47CD89}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 14px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
+.who{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;font-size:13px;color:var(--muted)}
+main{max-width:920px;margin:0 auto;padding:24px 16px 48px;display:flex;flex-direction:column;gap:20px}
+h1{margin:0;font-size:26px;letter-spacing:-.02em}
+h2{margin:0 0 4px;font-size:17px}
+p{margin:0}
+.muted{color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:12px}
+.actions{display:flex;gap:10px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:8px;font:600 14px system-ui,sans-serif;text-decoration:none;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.small{min-height:32px;padding:0 10px;font-size:13px}
+form{margin:0}
+ol{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;counter-reset:step}
+ol li{counter-increment:step;display:grid;grid-template-columns:32px 1fr;gap:12px;padding:14px;border:1px solid var(--line);border-radius:10px}
+ol li::before{content:counter(step);display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent);font-weight:700}
+.need{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--soft);color:var(--accent)}
+.need.opt{color:var(--muted)}
+li ul{margin:6px 0 0;padding-left:18px;color:var(--muted)}
+a{color:var(--accent)}
+.note{padding:12px 14px;border-radius:10px;background:var(--soft)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg width="26" height="26" viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#2952CC"></rect><path d="M7 17h5l3-6 3 6h3" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    GPU Relay
+  </div>
+  <div class="who" id="who">
+    <a class="btn small" href="/signin" id="signin-link">Sign in</a>
+  </div>
+</header>
+<main>
+  <section class="card" id="intro">
+    <h1 id="headline">Finish long ML jobs on free GPUs</h1>
+    <p class="muted">GPU Relay checkpoints your training or evaluation script, hands it off before a
+      session or quota limit ends it, and resumes it on another free platform. Results match one
+      uninterrupted run. It uses your own accounts; paid GPU time only within limits you set ($0 by default).</p>
+    <div class="actions" id="cta">
+      <a class="btn primary" href="/signup">Create an account</a>
+      <a class="btn" href="/signin">Sign in</a>
+    </div>
+    <p class="note" id="next" hidden></p>
+  </section>
+
+  <section class="card">
+    <div>
+      <h2>Before you start: what you need</h2>
+      <p class="muted">Gather these first. Each token is checked when you add it and stored encrypted; it is never shown again.</p>
+    </div>
+    <ol>
+      <li><div><strong>A GPU Relay account</strong><span class="need">required</span>
+        <ul><li>Your email and a password of 12 or more characters (and the invite code, if the server asks for one).</li></ul></div></li>
+      <li><div><strong>Hugging Face: account and a write token</strong><span class="need">required</span>
+        <ul><li>Sign up at huggingface.co.</li>
+          <li>Settings → Access Tokens → Create new token with <em>write</em> access.</li>
+          <li>GPU Relay creates a private storage repo in your account for your jobs and checkpoints.</li></ul></div></li>
+      <li><div><strong>Kaggle: account, verified phone, API token</strong><span class="need">required for automatic free GPUs</span>
+        <ul><li>Sign up at kaggle.com and verify your phone number (Kaggle gives GPUs only after that), about 30 GPU-hours a week.</li>
+          <li>Settings → API → Create New Token, then paste it here.</li></ul></div></li>
+      <li><div><strong>Modal: account, payment method, API token</strong><span class="need opt">optional</span>
+        <ul><li>Sign up at modal.com and add a payment method: Modal starts GPUs only then. It includes $30 of free compute a month.</li>
+          <li>Settings → API Tokens → New Token: paste the token id and the secret, and confirm Modal's terms.</li>
+          <li>GPU Relay uses only the free credit unless you raise your paid limit (default $0).</li></ul></div></li>
+      <li><div><strong>Google Colab: a secret for your notebooks</strong><span class="need opt">optional</span>
+        <ul><li>In Colab, open the key icon (Secrets), add <code>GPURELAY_HF_TOKEN</code> with your Hugging Face token, and allow notebook access.</li>
+          <li>When a job needs Colab you get a notice and a notebook: open it in Colab and press Run all. GPU Relay never drives Colab itself.</li></ul></div></li>
+      <li><div><strong>Your choices</strong><span class="need opt">defaults are fine</span>
+        <ul><li>Colab first or as a fallback, how long to wait for Run all (30 min), and your paid limit ($0).</li></ul></div></li>
+      <li><div><strong>Your job</strong><span class="need">required</span>
+        <ul><li>A Python script (.py) or notebook (.ipynb), plus requirements.txt if it needs extra packages.</li>
+          <li>Before you submit, GPU Relay checks whether it can resume; most scripts need no changes.</li></ul></div></li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>What GPU Relay does for you</h2>
+    <p class="muted">Starts sessions on Kaggle and Modal through their official APIs (always private), checkpoints at safe points,
+      hands off before limits, notifies you when a job needs you on Colab or finishes, and keeps your outputs. Your code
+      runs only on your own platform accounts, never on this server.</p>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+fetch("/api/me").then((r) => r.json()).then((me) => {
+  if (!me.user) {
+    if (!me.signup.open) $("cta").firstElementChild.hidden = true;
+    return;
+  }
+  const who = $("who");
+  who.textContent = "";
+  const email = document.createElement("span");
+  email.textContent = me.user.email;
+  const out = document.createElement("form");
+  out.method = "post"; out.action = "/signout";
+  const btn = document.createElement("button");
+  btn.className = "btn small"; btn.type = "submit"; btn.textContent = "Sign out";
+  out.append(btn);
+  const all = document.createElement("form");
+  all.method = "post"; all.action = "/signout-everywhere";
+  const btn2 = document.createElement("button");
+  btn2.className = "btn small"; btn2.type = "submit"; btn2.textContent = "Sign out everywhere";
+  all.append(btn2);
+  const account = document.createElement("a");
+  account.className = "btn small"; account.href = "/account"; account.textContent = "Account";
+  who.append(email, account, out, all);
+  if (!me.user.verified) {
+    $("headline").textContent = "Confirm your email";
+    $("cta").hidden = true;
+    $("next").hidden = false;
+    $("next").textContent = "We sent you a link. Confirm your email, then connect your platforms. (Account page: send it again.)";
+    return;
+  }
+  $("headline").textContent = "Welcome to GPU Relay";
+  const cta = $("cta");
+  cta.textContent = "";
+  const open = document.createElement("a");
+  open.className = "btn primary"; open.href = "/app/"; open.textContent = "Open my GPU Relay";
+  const setup = document.createElement("a");
+  setup.className = "btn"; setup.href = "/setup"; setup.textContent = "Set up accounts";
+  cta.append(open, setup);
+  fetch("/api/setup").then((r) => r.json()).then((s) => {
+    $("next").hidden = false;
+    $("next").textContent = s.ready
+      ? "Your accounts are connected. Open your GPU Relay to submit a job."
+      : "Next: connect Hugging Face and at least one GPU platform in Set up accounts (the list below says what to bring).";
+    if (!s.ready) { cta.prepend(setup); setup.className = "btn primary"; open.className = "btn"; }
+  }).catch(() => {});
+}).catch(() => {});
+</script>
+</body>
+</html>

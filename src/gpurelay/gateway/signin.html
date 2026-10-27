@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU Relay · Sign in</title>
+<style>
+:root{--bg:#F3F4F6;--card:#FFFFFF;--line:#E2E5EA;--field:#CDD2DA;--ink:#15171C;--muted:#5B6270;--accent:#2952CC;--accent-ink:#FFFFFF;--bad:#B42318}
+@media (prefers-color-scheme: dark){:root{--bg:#111318;--card:#1A1D24;--line:#2A2F39;--field:#3A404C;--ink:#ECEEF2;--muted:#A3AAB8;--accent:#6E8EF0;--accent-ink:#0B1020;--bad:#F97066}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--bg);color:var(--ink);font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{width:100%;max-width:400px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px;display:flex;flex-direction:column;gap:20px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;color:inherit;text-decoration:none}
+h1{margin:0;font-size:22px;letter-spacing:-.02em}
+p{margin:0;color:var(--muted)}
+form{display:flex;flex-direction:column;gap:12px}
+label{font-weight:600;font-size:13px}
+.hint{font-weight:400;color:var(--muted)}
+input{min-height:42px;padding:0 12px;border:1px solid var(--field);border-radius:8px;background:var(--card);color:var(--ink);font:inherit}
+input:focus{outline:2px solid var(--accent);outline-offset:1px}
+button{min-height:42px;border:none;border-radius:8px;background:var(--accent);color:var(--accent-ink);font:600 14px system-ui,sans-serif;cursor:pointer}
+#err{color:var(--bad);font-weight:500;min-height:1.5em}
+.switch{font-size:13px;color:var(--muted)}
+a{color:var(--accent)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <a class="brand" href="/">
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#2952CC"></rect><path d="M7 17h5l3-6 3 6h3" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    GPU Relay
+  </a>
+  <div>
+    <h1 id="title">Sign in</h1>
+    <p id="lead">Run your ML jobs to completion on free GPU tiers.</p>
+  </div>
+  <form method="post" id="form" action="/signin">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required autofocus>
+    <label for="password">Password <span class="hint" id="pwhint" hidden>(12 or more characters)</span></label>
+    <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
+    <div id="signup-only" style="display:flex;flex-direction:column;gap:12px" hidden>
+      <label for="confirm">Repeat the password</label>
+      <input id="confirm" name="confirm" type="password" autocomplete="new-password" maxlength="256">
+      <label for="invite" id="invite-label" hidden>Invite code</label>
+      <input id="invite" name="invite" type="text" autocomplete="off" maxlength="200" hidden>
+    </div>
+    <span id="err" role="alert"></span>
+    <button type="submit" id="submit">Sign in</button>
+  </form>
+  <span class="switch" id="switch"></span>
+</main>
+<script>
+const signup = location.pathname === "/signup";
+const params = new URLSearchParams(location.search);
+const $ = (id) => document.getElementById(id);
+if (params.get("email")) $("email").value = params.get("email");
+const messages = {
+  wrong: "Wrong email or password.",
+  busy: "Too many attempts. Try again later.",
+  mismatch: "The two passwords differ.",
+  invite: "That invite code is not right.",
+  full: "This server has no room for more accounts.",
+  email: "Enter a valid email address.",
+  password: "Use a password of 12 to 256 characters.",
+  exists: "An account with this email already exists. Sign in instead.",
+};
+const notes = {reset: "Your password is changed. Sign in with the new one."};
+if (notes[params.get("m")]) { $("err").textContent = notes[params.get("m")]; $("err").style.color = "inherit"; }
+if (messages[params.get("e")]) $("err").textContent = messages[params.get("e")];
+const link = (text, href, label) => { const s = $("switch"); s.textContent = text + " "; const a = document.createElement("a"); a.href = href; a.textContent = label; s.append(a); };
+if (signup) {
+  document.title = "GPU Relay · Create an account";
+  $("title").textContent = "Create an account";
+  $("lead").textContent = "Free GPUs first. You connect your own Hugging Face and Kaggle accounts next.";
+  $("form").action = "/signup";
+  $("submit").textContent = "Create account";
+  $("password").autocomplete = "new-password";
+  $("password").minLength = 12;
+  $("confirm").required = true;
+  $("pwhint").hidden = false;
+  $("signup-only").hidden = false;
+  link("Already have an account?", "/signin", "Sign in");
+  fetch("/api/me").then((r) => r.json()).then((me) => {
+    if (me.signup.invite) { $("invite").hidden = false; $("invite-label").hidden = false; $("invite").required = true; }
+    if (!me.signup.open) { $("err").textContent = messages.full; $("submit").disabled = true; }
+  }).catch(() => {});
+} else {
+  link("New here?", "/signup", "Create an account");
+  const forgot = document.createElement("a"); forgot.href = "/forgot"; forgot.textContent = "Forgot your password?";
+  $("switch").append(document.createElement("br"), forgot);
+}
+</script>
+</body>
+</html>

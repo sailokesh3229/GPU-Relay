@@ -202,13 +202,14 @@ def prepare_home(home: Path, storage_factory: Callable[[str], Storage]) -> Stora
     return storage
 
 
-def watch_stop_file(home: Path, poll_s: float = 0.5) -> threading.Thread:
-    """End this process's main thread like Ctrl+C once ``home/controller.stop`` appears.
+def watch_stop_file(home: Path, poll_s: float = 0.5, name: str = STOP_FILENAME) -> threading.Thread:
+    """End this process's main thread like Ctrl+C once ``home/<name>`` appears
+    (``controller.stop`` for `gpurelay up`).
 
     The graceful stop that works everywhere: a console-less child on Windows cannot receive
     Ctrl+C or Ctrl+Break. `up` then releases its lease, so the next controller takes over at
     once instead of waiting for the lease to go stale."""
-    stop = home / STOP_FILENAME
+    stop = home / name
     # A request written before this process started is a leftover for an earlier controller;
     # one written while it was starting up (a Stop clicked right away) is for this one.
     try:

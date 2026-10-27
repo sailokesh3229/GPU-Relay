@@ -16,8 +16,9 @@ IMPLEMENTED = {
     "init",
     "run-local", "analyze", "submit", "up", "status", "logs", "quota", "pause", "resume",
     "cancel", "fetch", "colab", "dashboard", "export-state", "import-state", "serve",
-    "app",
+    "app", "gateway",
 }  # fmt: skip
+HIDDEN = {"gateway"}  # the multi-user website, while in progress (plan M1-M5)
 
 # Minimal valid arguments for invoking each command.
 
@@ -31,7 +32,7 @@ def test_registered_commands_match_spec() -> None:
 def test_root_help() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0, result.output
-    for name in IMPLEMENTED:
+    for name in IMPLEMENTED - HIDDEN:
         assert name in result.output
 
 

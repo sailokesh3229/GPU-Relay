@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU Relay · Account</title>
+<style>
+:root{--bg:#F3F4F6;--card:#FFFFFF;--line:#E2E5EA;--field:#CDD2DA;--ink:#15171C;--muted:#5B6270;--accent:#2952CC;--accent-ink:#FFFFFF;--soft:#EEF2FC;--good:#067647;--bad:#B42318;--bad-soft:#FEF3F2}
+@media (prefers-color-scheme: dark){:root{--bg:#111318;--card:#1A1D24;--line:#2A2F39;--field:#3A404C;--ink:#ECEEF2;--muted:#A3AAB8;--accent:#6E8EF0;--accent-ink:#0B1020;--soft:#1E2433;--good:#47CD89;--bad:#F97066;--bad-soft:#2D1512}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 14px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;color:inherit;text-decoration:none}
+main{max-width:720px;margin:0 auto;padding:24px 16px 48px;display:flex;flex-direction:column;gap:16px}
+h1{margin:0;font-size:24px;letter-spacing:-.02em}
+h2{margin:0;font-size:16px}
+p{margin:0}
+.muted{color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:12px}
+.card.danger{border-color:var(--bad)}
+form{display:flex;flex-direction:column;gap:10px;margin:0}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+label{font-weight:600;font-size:13px;display:flex;flex-direction:column;gap:4px}
+label.check{flex-direction:row;align-items:center;gap:8px;font-weight:500}
+input{min-height:40px;padding:0 10px;border:1px solid var(--field);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;width:100%}
+input[type=checkbox]{width:auto;min-height:auto}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button{min-height:38px;padding:0 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);font:600 14px system-ui,sans-serif;cursor:pointer}
+button.plain{background:var(--card);color:var(--ink);border-color:var(--line)}
+button.bad{background:var(--bad);border-color:var(--bad);color:#fff}
+.msg{min-height:1.4em;font-weight:500}
+.msg.bad{color:var(--bad)}
+.msg.good{color:var(--good)}
+.note{padding:12px 14px;border-radius:10px;background:var(--soft)}
+.note.bad{background:var(--bad-soft);color:var(--bad)}
+a{color:var(--accent)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">
+    <svg width="26" height="26" viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#2952CC"></rect><path d="M7 17h5l3-6 3 6h3" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    GPU Relay
+  </a>
+  <a href="/">Back</a>
+</header>
+<main>
+  <div>
+    <h1>Your account</h1>
+    <p class="muted" id="email"></p>
+  </div>
+  <p class="note" id="banner" hidden></p>
+
+  <section class="card" id="verify" hidden>
+    <h2>Confirm your email</h2>
+    <p class="muted">We sent you a link when you signed up. Confirm it to connect your platforms and get job emails.</p>
+    <form id="resend"><span class="msg" role="status"></span><div class="btns"><button type="submit">Send the link again</button></div></form>
+  </section>
+
+  <section class="card">
+    <h2>Emails about your jobs</h2>
+    <p class="muted" id="notify-hint">When a job needs you on Colab, finishes, or fails.</p>
+    <form id="notify">
+      <label class="check"><input type="checkbox" name="notify"> Send me these emails</label>
+      <span class="msg" role="status"></span>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Change your password</h2>
+    <form id="password">
+      <div class="row">
+        <label>Current password<input name="current" type="password" autocomplete="current-password" required maxlength="256"></label>
+        <label>New password (12 or more characters)<input name="new" type="password" autocomplete="new-password" required minlength="12" maxlength="256"></label>
+      </div>
+      <span class="msg" role="status"></span>
+      <div class="btns"><button type="submit">Change password</button></div>
+    </form>
+    <p class="muted">Changing it signs you out on your other devices.</p>
+  </section>
+
+  <section class="card danger">
+    <h2>Delete your account</h2>
+    <p class="muted">Removes your account, your saved tokens and settings, and your files on this server, and stops your GPU Relay here.
+      Your storage repo on Hugging Face and the gpurelay-secrets dataset on Kaggle stay in your accounts: delete them there if you no longer need them,
+      and revoke the tokens you gave GPU Relay. GPU sessions already running finish on their platform.</p>
+    <form id="delete">
+      <label style="max-width:320px">Your password<input name="password" type="password" autocomplete="current-password" required maxlength="256"></label>
+      <label class="check"><input type="checkbox" name="sure" required> I understand this cannot be undone</label>
+      <span class="msg" role="status"></span>
+      <div class="btns"><button class="bad" type="submit">Delete my account</button></div>
+    </form>
+  </section>
+</main>
+<script>
+const $ = (sel) => document.querySelector(sel);
+const say = (form, text, kind) => { const m = form.querySelector(".msg"); m.textContent = text; m.className = "msg " + (kind || ""); };
+const params = new URLSearchParams(location.search);
+const banners = {verified: ["Your email is confirmed.", ""], verify: ["Confirm your email first: we sent you a link.", "bad"], link: ["That link is no longer valid. Send a new one below.", "bad"]};
+const shown = banners[params.get("m")] || banners[params.get("e")];
+if (shown) { $("#banner").textContent = shown[0]; $("#banner").className = "note " + shown[1]; $("#banner").hidden = false; }
+async function post(path, payload) {
+  const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Please check the fields.");
+  return data;
+}
+fetch("/api/account").then((r) => { if (r.status === 401) location.href = "/signin"; return r.json(); }).then((a) => {
+  $("#email").textContent = "Signed in as " + a.email;
+  $("#verify").hidden = !a.mail || a.verified;
+  $("#notify").notify.checked = a.notify;
+  if (!a.mail) { $("#notify").notify.disabled = true; $("#notify-hint").textContent = "This site sends no email; job notices appear in your GPU Relay."; }
+});
+$("#resend").addEventListener("submit", async (ev) => { ev.preventDefault(); try { await post("/api/account/verify-email", {}); say(ev.target, "Sent. Check your inbox.", "good"); } catch (e) { say(ev.target, e.message, "bad"); } });
+$("#notify").notify.addEventListener("change", async (ev) => { try { await post("/api/account/notify", {notify: ev.target.checked}); say($("#notify"), "Saved.", "good"); } catch (e) { say($("#notify"), e.message, "bad"); } });
+$("#password").addEventListener("submit", async (ev) => {
+  ev.preventDefault(); const f = ev.target;
+  try { await post("/api/account/password", {current: f.current.value, new: f.new.value}); f.reset(); say(f, "Password changed.", "good"); } catch (e) { say(f, e.message, "bad"); }
+});
+$("#delete").addEventListener("submit", async (ev) => {
+  ev.preventDefault(); const f = ev.target;
+  try { await post("/api/account/delete", {password: f.password.value}); location.href = "/"; } catch (e) { say(f, e.message, "bad"); }
+});
+</script>
+</body>
+</html>

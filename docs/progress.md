@@ -1180,3 +1180,82 @@ GPU Relay's aim becomes the lowest GPU cost: free first, paid only within limits
 - **Also fixed:** a stop request written while the controller was starting was deleted as a
   "leftover" (found under full-suite load). Now only requests older than the process are
   dropped. Test: `test_a_stop_requested_while_the_controller_starts_is_not_lost`.
+
+## Colab on the server, Colab first (2026-10-27, live)
+
+- `GPURELAY_COLAB=1` turns on Colab resume notebooks on the server; `GPURELAY_COLAB_FIRST=1`
+  (`[backends.colab_manual] first`) asks for Colab before Kaggle and Modal. Without Run all
+  within `wait_s` (`GPURELAY_COLAB_WAIT_MIN`, default 30) the request is withdrawn (no GPU
+  time charged) and Colab is held so the job goes to the other platforms.
+- Live check: `/api/settings` on the Render site lists `colab_manual` as configured.
+
+## Phase M1 — Accounts (2026-10-27, local only, not deployed)
+
+- `accounts/`: scrypt password hashes (`passwords.py`), the user table in Postgres or SQLite
+  (`store.py`, `DATABASE_URL`), signed session cookies bound to a per-user epoch
+  (`sessions.py`): a password change or "sign out everywhere" ends old sessions.
+- `gateway/`: sign-up, sign-in, sign-out, sign-out everywhere, `/api/me`, and a home page with
+  the full "what you need" checklist. Sign-up limit `GPURELAY_MAX_USERS` (default 3),
+  optional `GPURELAY_INVITE_CODE`, rate limits, same-origin check on every form post, error
+  codes only (no text from the URL is shown), security headers. `gpurelay gateway` (hidden
+  until M5); `server` extra adds psycopg.
+- Not deployed on purpose: until M3, a signed-in user would reach the single controller.
+- Tests: `test_accounts.py`, `test_gateway.py` (18). 528 unit tests pass; ruff, mypy clean.
+- Smoke test (local gateway on SQLite, curl): wrong invite refused, sign-up signs in,
+  cross-site post 403, sign-out, wrong password refused, case-insensitive sign-in, third
+  account refused at the limit of 2, headers present, only scrypt hashes in the database.
+- Not yet checked against a real Postgres (M5, with the free database you create).
+
+## Phase M2 — Token vault and setup on the website (2026-10-27, local only)
+
+- `accounts/vault.py`: tokens sealed with AES-256-GCM (`GPURELAY_VAULT_KEY`), bound to user
+  and name (a row moved to another user or name does not open). Tables `secrets`,
+  `settings` (the user's config as JSON, no secrets), `links` (one-time link hashes, M4).
+- `gateway/userenv.py`: the environment of any process acting for a user starts from an
+  allowlist (never the server's database URL or keys), holds that user's tokens as variables
+  only (no token files), points home, Kaggle, Modal and HF folders into the user's folder and
+  switches the keyring off. `server_rules`: no local jobs, no desktop notes, Lightning off.
+- `gateway/setup_worker.py` runs each check in its own process (HF: token and private repo;
+  Kaggle: token and the private secrets dataset; Modal: `Client.hello`). Errors never carry
+  a traceback, and the gateway masks any token value in them. A token is kept only after the
+  platform accepted it; a new HF token refreshes the Kaggle secrets dataset.
+- `/setup` page and `/api/setup*`: HF, Kaggle (GPU), Modal (terms), Colab (first, wait),
+  limits, remove; rate limited per user.
+- Fixed while testing: the worker switched Modal on before marking its terms accepted.
+
+## Phase M3 — Each user's own GPU Relay (2026-10-27, local only)
+
+- `gateway/user_server.py`: one process per user (web app + supervised controller) on
+  127.0.0.1 with a per-launch key; restores the job database from the user's storage repo,
+  keeps the gateway's settings, backs up to the user's repo; `server.stop` stops it.
+- `gateway/children.py`: starts a user's process on first visit (needs storage), at site
+  start for users with jobs in flight (`users.active`); stops idle ones after 30 min, never
+  one with unfinished jobs; at most `GPURELAY_MAX_ACTIVE` (2) at once (an idle one makes room,
+  else "busy"); restarts a crashed one with jobs; applies new settings by restarting.
+- `gateway/proxy.py`: `/app/...` forwards to the signed-in user's process only, adds the
+  launch key, passes no browser cookies in and no child cookies out.
+- End-to-end (real gateway, user process and controller; local storage test user): `/app/`
+  started in ~1 s; job submitted (FULL); missing action header 403; settings change restarted
+  the process with the job kept; graceful stop in 2 s with a last backup; after wiping the
+  user's folder the job came back from the storage backup.
+
+## Phase M4 — Account care (2026-10-27, local only)
+
+- `gateway/mail.py`: optional SMTP (`GPURELAY_SMTP_*`, `GPURELAY_MAIL_FROM`,
+  `GPURELAY_SITE_URL`). With mail: sign-up sends a confirmation link and setup and `/app` wait
+  for it; forgot password (same answer for every email, link 1 h, once); without mail: no
+  verification, no reset.
+- `gateway/account_routes.py` and `/account`: change password (other devices signed out),
+  job emails on/off, delete account (stops the user's process, removes tokens, settings, links
+  and folder; the user's HF repo and Kaggle dataset stay theirs).
+- `gateway/notices.py`: emails when a job needs Colab, finishes or fails (first look after a
+  start only learns states; off or unverified: none).
+- `GPURELAY_MAX_JOBS` (3) unfinished jobs per user, checked on submit.
+- `store.py` adds missing columns to an older database at start.
+- Tests: `test_gateway_setup.py` (10), `test_gateway_children.py` (13),
+  `test_gateway_account.py` (10), plus store tests. 562 unit tests pass; ruff, mypy clean.
+- Real checks: job limit (3rd extra submit 429), account deletion (processes, folder, sign-in
+  gone); the real setup worker with the owner's real tokens: HF verified
+  `sailokeshp/gpurelay-store` (not created), Kaggle `sailokesh2907` with the existing secrets
+  dataset (not rewritten), a wrong Kaggle token refused, no token in any status answer.
+- Not yet: Postgres (M5), sending real mail (needs SMTP settings), the live site (M5).

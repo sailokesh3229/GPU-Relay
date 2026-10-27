@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU Relay · Reset password</title>
+<style>
+:root{--bg:#F3F4F6;--card:#FFFFFF;--line:#E2E5EA;--field:#CDD2DA;--ink:#15171C;--muted:#5B6270;--accent:#2952CC;--accent-ink:#FFFFFF;--bad:#B42318;--good:#067647}
+@media (prefers-color-scheme: dark){:root{--bg:#111318;--card:#1A1D24;--line:#2A2F39;--field:#3A404C;--ink:#ECEEF2;--muted:#A3AAB8;--accent:#6E8EF0;--accent-ink:#0B1020;--bad:#F97066;--good:#47CD89}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--bg);color:var(--ink);font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{width:100%;max-width:400px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px;display:flex;flex-direction:column;gap:20px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;color:inherit;text-decoration:none}
+h1{margin:0;font-size:22px;letter-spacing:-.02em}
+p{margin:0;color:var(--muted)}
+form{display:flex;flex-direction:column;gap:12px}
+label{font-weight:600;font-size:13px}
+input{min-height:42px;padding:0 12px;border:1px solid var(--field);border-radius:8px;background:var(--card);color:var(--ink);font:inherit}
+input:focus{outline:2px solid var(--accent);outline-offset:1px}
+button{min-height:42px;border:none;border-radius:8px;background:var(--accent);color:var(--accent-ink);font:600 14px system-ui,sans-serif;cursor:pointer}
+#msg{font-weight:500;min-height:1.5em}
+#msg.bad{color:var(--bad)}
+#msg.good{color:var(--good)}
+a{color:var(--accent);font-size:13px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <a class="brand" href="/">
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#2952CC"></rect><path d="M7 17h5l3-6 3 6h3" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    GPU Relay
+  </a>
+  <div>
+    <h1 id="title">Forgot your password?</h1>
+    <p id="lead">Enter your email. If it has an account, we send you a link to choose a new password.</p>
+  </div>
+  <form method="post" action="/forgot" id="ask">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required autofocus>
+    <button type="submit">Send the link</button>
+  </form>
+  <form method="post" action="/reset" id="choose" hidden>
+    <input type="hidden" name="t" id="t">
+    <label for="password">New password (12 or more characters)</label>
+    <input id="password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
+    <label for="confirm">Repeat the new password</label>
+    <input id="confirm" name="confirm" type="password" autocomplete="new-password" maxlength="256" required>
+    <button type="submit">Set the new password</button>
+  </form>
+  <span id="msg" role="status"></span>
+  <a href="/signin">Back to sign in</a>
+</main>
+<script>
+const params = new URLSearchParams(location.search);
+const $ = (id) => document.getElementById(id);
+const token = params.get("t");
+if (location.pathname === "/reset" && token) {
+  $("ask").hidden = true; $("choose").hidden = false; $("t").value = token;
+  $("title").textContent = "Choose a new password"; $("lead").textContent = "It signs you out everywhere else.";
+}
+const messages = {
+  sent: ["If that email has an account, the link is on its way. It works for one hour.", "good"],
+  nomail: ["This site sends no email, so passwords cannot be reset here. Ask the person who runs it.", "bad"],
+  busy: ["Too many requests. Try again later.", "bad"],
+  link: ["That link is no longer valid. Ask for a new one.", "bad"],
+  mismatch: ["The two passwords differ.", "bad"],
+  password: ["Use a password of 12 to 256 characters.", "bad"],
+};
+const shown = messages[params.get("m")] || messages[params.get("e")];
+if (shown) { $("msg").textContent = shown[0]; $("msg").className = shown[1]; }
+</script>
+</body>
+</html>
