@@ -1,6 +1,9 @@
 """Scheduling policy (spec §13.4) — pure functions, no I/O.
 
 1. Runnable jobs are ordered by priority (high first), then submission time.
+1b. A manual backend set to go first (Colab ``first = true``) is asked before everything
+   else: the job waits for the user (``awaiting_user``); the controller sends it elsewhere if
+   nobody starts the session in time.
 2. A job goes to a backend that is ready, has remaining budget >= ``min_segment_h`` (or no
    budget limit), and has a free concurrency slot. Automated backends are preferred; among
    them (plan P11):
@@ -51,6 +54,7 @@ class BackendView:
     speed: float = 1.0  # relative GPU speed, T4 = 1.0
     paid_usd_per_h: float | None = None  # paid GPU time after the free budget
     paid_left_usd: float = 0.0  # the platform's monthly paid limit minus this month's spend
+    first: bool = False  # a manual backend asked before the automated ones
 
     @property
     def expiring(self) -> bool:
@@ -136,6 +140,15 @@ def plan(
         def usable(b: BackendView) -> bool:
             return b.ready and b.has_budget(min_segment_h) and slots[b.name] < b.max_concurrent
 
+        first = [b for b in backends if b.first and not b.automated and usable(b)]
+        if first:
+            chosen = first[0]
+            slots[chosen.name] += 1
+            reason = f"{chosen.name} goes first"
+            decisions.append(
+                Decision(job.id, "await_user", chosen.name, deadline_for(chosen), reason=reason)
+            )
+            continue
         automated = [b for b in backends if b.automated and usable(b)]
         if automated:
             chosen = choose(automated, job)

@@ -152,6 +152,19 @@ def test_manual_only_means_awaiting_user() -> None:
     assert (decision.action, decision.backend) == ("await_user", "colab")
 
 
+def test_manual_backend_set_first_comes_before_automated_ones() -> None:
+    kaggle, colab = _backend("kaggle", 20.0), _backend("colab", None, automated=False)
+    [decision] = plan([_job("j")], [kaggle, colab], min_segment_h=0.5)
+    assert decision.backend == "kaggle"  # default: Colab only when nothing automated can
+    colab.first = True
+    first, second = plan([_job("j"), _job("k", minute=1)], [kaggle, colab], min_segment_h=0.5)
+    assert (first.action, first.backend) == ("await_user", "colab")
+    assert (second.action, second.backend) == ("launch", "kaggle")  # Colab has one slot
+    colab.ready = False  # on hold after nobody pressed Run all
+    [decision] = plan([_job("j")], [kaggle, colab], min_segment_h=0.5)
+    assert decision.backend == "kaggle"
+
+
 def test_no_budget_waits_for_earliest_reset() -> None:
     reset_a = datetime(2026, 3, 5, tzinfo=timezone.utc)
     reset_b = datetime(2026, 3, 3, tzinfo=timezone.utc)

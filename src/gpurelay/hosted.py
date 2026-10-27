@@ -43,6 +43,9 @@ ENV_TAKEOVER = "GPURELAY_TAKEOVER"
 ENV_MODAL = "GPURELAY_MODAL"
 ENV_MODAL_GPU = "GPURELAY_MODAL_GPU"
 ENV_MODAL_PAID_CAP = "GPURELAY_MODAL_PAID_CAP"  # USD a month after the free credit; default 0
+ENV_COLAB = "GPURELAY_COLAB"  # Colab resume notebooks: the owner presses Run all
+ENV_COLAB_FIRST = "GPURELAY_COLAB_FIRST"  # ask for Colab before Kaggle and Modal
+ENV_COLAB_WAIT = "GPURELAY_COLAB_WAIT_MIN"  # minutes to wait for Run all; default 30
 
 
 def _usd(value: str | None) -> float:
@@ -52,6 +55,19 @@ def _usd(value: str | None) -> float:
     except ValueError:
         return 0.0
     return amount if amount > 0 else 0.0
+
+
+def _on(value: str | None) -> bool:
+    return (value or "").strip().lower() in ("1", "true", "yes")
+
+
+def _minutes(value: str | None, default_s: int) -> int:
+    """A wait in minutes from the environment, as seconds; anything unclear keeps the default."""
+    try:
+        minutes = float((value or "").strip())
+    except ValueError:
+        return default_s
+    return int(minutes * 60) if minutes > 0 else default_s
 
 
 BACKUP_S = 600.0
@@ -128,12 +144,15 @@ def hosted_config(config: Config, env: Mapping[str, str] | None = None) -> Confi
     Platforms are switched on with the host's environment (there is no setup wizard on a
     server): ``GPURELAY_MODAL=1`` turns Modal on, and setting it is the owner's
     confirmation that they read Modal's terms; its token comes from ``MODAL_TOKEN_ID`` /
-    ``MODAL_TOKEN_SECRET``. Without it Modal is off. ``GPURELAY_MODAL_GPU`` picks the GPU."""
+    ``MODAL_TOKEN_SECRET``. Without it Modal is off. ``GPURELAY_MODAL_GPU`` picks the GPU.
+    ``GPURELAY_COLAB=1`` turns on Colab resume notebooks (the owner presses Run all);
+    ``GPURELAY_COLAB_FIRST=1`` asks for Colab before Kaggle and Modal, falling back to them
+    after ``GPURELAY_COLAB_WAIT_MIN`` minutes (default 30) without Run all."""
     env = os.environ if env is None else env
     update: dict[str, object] = {
         "local": config.backends.local.model_copy(update={"enabled": False})
     }
-    if env.get(ENV_MODAL, "").strip().lower() in ("1", "true", "yes"):
+    if _on(env.get(ENV_MODAL)):
         update["modal"] = config.backends.modal.model_copy(update={
             "enabled": True, "terms_reviewed": True,
             "gpu": env.get(ENV_MODAL_GPU, "").strip() or config.backends.modal.gpu,
@@ -141,6 +160,12 @@ def hosted_config(config: Config, env: Mapping[str, str] | None = None) -> Confi
         })  # fmt: skip
     else:  # the switch decides both ways (a restored backup may say otherwise)
         update["modal"] = config.backends.modal.model_copy(update={"enabled": False})
+    colab = _on(env.get(ENV_COLAB))
+    update["colab_manual"] = config.backends.colab_manual.model_copy(update={
+        "enabled": colab,
+        "first": colab and _on(env.get(ENV_COLAB_FIRST)),
+        "wait_s": _minutes(env.get(ENV_COLAB_WAIT), config.backends.colab_manual.wait_s),
+    })  # fmt: skip
     backends = config.backends.model_copy(update=update)
     notify = config.notify.model_copy(update={"desktop": False})
     return config.model_copy(update={"backends": backends, "notify": notify})

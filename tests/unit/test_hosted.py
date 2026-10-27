@@ -281,6 +281,22 @@ def test_the_server_turns_modal_on_only_with_its_switch() -> None:
     assert not hosted_config(cfg, {"GPURELAY_MODAL": "no"}).backends.modal.enabled
 
 
+def test_the_server_turns_colab_on_and_first_only_with_its_switches() -> None:
+    cfg = Config()
+    off = hosted_config(cfg, {})
+    assert not off.backends.colab_manual.enabled and not off.backends.colab_manual.first
+    on = hosted_config(cfg, {"GPURELAY_COLAB": "1"})
+    assert on.backends.colab_manual.enabled and not on.backends.colab_manual.first
+    first = hosted_config(cfg, {"GPURELAY_COLAB": "yes", "GPURELAY_COLAB_FIRST": "1",
+                                "GPURELAY_COLAB_WAIT_MIN": "45"})  # fmt: skip
+    assert first.backends.colab_manual.first and first.backends.colab_manual.wait_s == 45 * 60
+    assert not hosted_config(cfg, {"GPURELAY_COLAB_FIRST": "1"}).backends.colab_manual.first
+    unclear = hosted_config(cfg, {"GPURELAY_COLAB": "1", "GPURELAY_COLAB_WAIT_MIN": "soon"})
+    assert unclear.backends.colab_manual.wait_s == 30 * 60
+    restored = first.model_copy(deep=True)  # a backup cannot keep Colab on without the switch
+    assert not hosted_config(restored, {}).backends.colab_manual.enabled
+
+
 def test_a_stop_requested_while_the_controller_starts_is_not_lost(tmp_path: Path) -> None:
     """Found under load: the child deleted a fresh request as a "leftover" while starting."""
     import subprocess

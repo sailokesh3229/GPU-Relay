@@ -339,6 +339,20 @@ class Controller:
             job = self.db.get_job(seg.job_id)
             if job is not None:
                 self._set_job(job, JobState.RUNNING, now, "user started the session")
+            return
+        wait = slot.user_wait_s
+        if wait is None or seg.started_at is None or now - seg.started_at.timestamp() < wait:
+            return
+        # Nobody pressed Run all in time: withdraw the request (the notebook then refuses to
+        # start) and keep the platform out of the next plans so the job goes elsewhere.
+        slot.backend.cancel(self._handle(seg))
+        reason = f"not started within {wait / 60:.0f} min"
+        self._close_segment(seg, "cancelled", None, now, reason)
+        self.holds[slot.name] = (now + LAUNCH_HOLD_S, reason)
+        self.db.add_event("backend_hold", f"{slot.name} on hold: {reason}", now=now)
+        job = self.db.get_job(seg.job_id)
+        if job is not None and not job.state.is_terminal:
+            self._set_job(job, JobState.QUEUED, now, f"{slot.name} {reason}; using other platforms")
 
     def _runtime_for(self, seg: Segment) -> RuntimeSettings:
         """The settings the segment's session runs with (Hub-backed ones beat less often)."""
@@ -534,6 +548,7 @@ class Controller:
                     budget_model=slot.budget.model.value,
                     speed=slot.speed,
                     paid_usd_per_h=slot.paid_usd_per_h,
+                    first=slot.first,
                     paid_left_usd=(
                         max(
                             0.0,

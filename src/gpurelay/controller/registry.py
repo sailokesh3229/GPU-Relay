@@ -34,6 +34,10 @@ class BackendSlot:
     # owner's monthly limit for it (0: never pay).
     paid_usd_per_h: float | None = None
     paid_cap_usd: float = 0.0
+    # Manual backends: asked before the automated ones, and how long a request waits for
+    # the user before the job goes elsewhere (None: it waits until the user acts).
+    first: bool = False
+    user_wait_s: float | None = None
 
 
 def build_backends(config: Config, storage: Storage, sessions_root: Path) -> dict[str, BackendSlot]:
@@ -205,6 +209,8 @@ def build_backends(config: Config, storage: Storage, sessions_root: Path) -> dic
             max_session_s=colab.max_session_s,
             gpu_label=colab.gpu_label,
             speed=speed_of(colab.gpu_label or "T4"),  # free Colab is usually a T4
+            first=colab.first,
+            user_wait_s=float(colab.wait_s) if colab.first else None,
         )
     return slots
 

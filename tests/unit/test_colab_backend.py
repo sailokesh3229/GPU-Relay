@@ -273,6 +273,11 @@ def test_registry_adds_a_manual_slot(tmp_path: Path) -> None:
     slot = slots["colab_manual"]
     assert slot.automated is False and slot.backend.automated is False
     assert slot.budget.hours is None and slot.max_concurrent == 1
+    assert slot.first is False and slot.user_wait_s is None  # default: a fallback that waits
+    config.backends.colab_manual = ColabSettings(enabled=True, first=True, wait_s=600)
+    slots = build_backends(config, LocalFSStorage(tmp_path / "store"), tmp_path / "s2")
+    slot = slots["colab_manual"]
+    assert slot.first is True and slot.user_wait_s == 600.0
 
 
 # ---------------------------------------------------------------- hard rule 2

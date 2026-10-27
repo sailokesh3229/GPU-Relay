@@ -25,7 +25,8 @@ anything. A free server: the first visit after a quiet spell takes about a minut
 - **Lowest cost, free first.** One job relays across platforms in this order:
   1. free GPU hours and free credits (credits that expire this month first, then the fastest
      GPU, then the most hours left);
-  2. Colab (free, but you press Run all);
+  2. Colab (free, but you press Run all). Set Colab to go **first** to be asked before
+     Kaggle and Modal; if you don't press Run all within 30 minutes, the job uses them;
   3. paid GPU time, only if you allowed it for this job *and* set a monthly limit above $0
      for the platform: the cheapest per unit of work, and a session ends before it could pass
      either limit. Both limits are $0 by default, so GPU Relay never charges you unless you
@@ -78,7 +79,10 @@ Anyone with the URL can look (`GPURELAY_PUBLIC_VIEW=1`); the owner logs in to su
 or cancel. To add Modal on the server, set `GPURELAY_MODAL=1` (your confirmation of Modal's
 terms), `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in the host's environment settings.
 `GPURELAY_MODAL_PAID_CAP` (USD a month, default 0) allows paid Modal time after the free
-credit; set Modal's own workspace spending limit too. The server's disk is wiped when it restarts or sleeps, so it backs up its job list
+credit; set Modal's own workspace spending limit too. `GPURELAY_COLAB=1` turns on Colab: the website
+notifies you and offers the resume notebook to download; `GPURELAY_COLAB_FIRST=1` asks for
+Colab before Kaggle and Modal (`GPURELAY_COLAB_WAIT_MIN`, default 30, is how long it waits
+for Run all). The server's disk is wiped when it restarts or sleeps, so it backs up its job list
 to your private storage repo and restores it on start. The desktop app can show your server
 ("My server" in its setup) and notify you about its jobs.
 

@@ -276,6 +276,41 @@ def test_manual_session_time_counts_from_when_the_user_starts(tmp_path: Path) ->
     assert [n.kind for n in h.notifier.sent].count("colab_action") == 2
 
 
+def test_colab_first_falls_back_when_nobody_presses_run_all(tmp_path: Path) -> None:
+    h = _harness(tmp_path, {"kaggle": (30.0, True, 1, "T4"), "colab": (None, False, 1, "T4")})
+    h.controller.backends["colab"].first = True
+    h.controller.backends["colab"].user_wait_s = 30 * 60.0
+    job = h.submit()
+    h.controller.tick()
+    [seg] = h.live(job.id)
+    assert (seg.backend, seg.state) == ("colab", SegmentState.AWAITING_USER)
+    h.clock.now += 29 * 60
+    h.controller.tick()
+    assert h.live(job.id)[0].id == seg.id  # still waiting for Run all
+    h.clock.now += 2 * 60
+    h.controller.tick()  # withdrawn, then planned again on Kaggle
+    assert h.backends["colab"].cancelled == [seg.id]
+    [again] = h.live(job.id)
+    assert (again.backend, again.state) == ("kaggle", SegmentState.RUNNING)
+    assert not [e for e in h.db.ledger("colab") if e.kind == "usage"]
+
+
+def test_colab_first_runs_on_colab_when_the_user_starts_it(tmp_path: Path) -> None:
+    h = _harness(tmp_path, {"kaggle": (30.0, True, 1, "T4"), "colab": (None, False, 1, "T4")})
+    h.controller.backends["colab"].first = True
+    h.controller.backends["colab"].user_wait_s = 30 * 60.0
+    job = h.submit()
+    h.controller.tick()
+    h.clock.now += 10 * 60
+    _user_starts(h, job.id)
+    h.clock.now += 60 * 60  # long past the wait: a started session is never withdrawn
+    _user_starts(h, job.id)
+    h.controller.tick()
+    [seg] = h.live(job.id)
+    assert (seg.backend, seg.state) == ("colab", SegmentState.RUNNING)
+    assert h.job(job.id).state is JobState.RUNNING
+
+
 def test_cancelling_an_unstarted_request_uses_no_gpu_time(tmp_path: Path) -> None:
     h = _harness(tmp_path, {"colab": (None, False, 1, "T4")})
     job = h.submit()

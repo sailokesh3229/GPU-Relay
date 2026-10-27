@@ -142,6 +142,10 @@ class ColabSettings(_Section):
     gpu_label: str | None = None  # shown in status; the session reports the real GPU
     # Name of the Colab user secret (key icon) holding the Hugging Face token.
     secret_name: str = "GPURELAY_HF_TOKEN"
+    # Ask for Colab before the automated platforms (each session waits for Run all). If
+    # nobody presses Run all within ``wait_s``, the job goes to the other platforms.
+    first: bool = False
+    wait_s: int = Field(default=30 * 60, gt=0)
 
 
 class LocalSettings(_Section):

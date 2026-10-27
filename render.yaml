@@ -26,6 +26,13 @@ services:
       # controller sees the takeover within one tick and stops) instead of waiting 15 min.
       - key: GPURELAY_TAKEOVER
         value: "1"
+      # Colab: GPU Relay prepares a resume notebook and notifies you; you press Run all.
+      # COLAB_FIRST asks for Colab before Kaggle and Modal; without Run all within
+      # GPURELAY_COLAB_WAIT_MIN minutes (default 30) the job goes to them instead.
+      - key: GPURELAY_COLAB
+        value: "1"
+      - key: GPURELAY_COLAB_FIRST
+        value: "1"
       # Signs login cookies; a stable value keeps people logged in across restarts and sleep.
       - key: GPURELAY_SESSION_KEY
         generateValue: true
