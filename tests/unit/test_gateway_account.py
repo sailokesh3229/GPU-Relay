@@ -48,7 +48,10 @@ def _site(tmp_path: Path, mail: bool = True) -> tuple[TestClient, UserStore, Fak
 
 
 def _signup(client: TestClient, email: str = "ada@example.com") -> None:
-    client.post("/signup", data={"email": email, "password": PW, "confirm": PW})
+    client.post(
+        "/signup",
+        data={"username": email.split("@")[0], "email": email, "password": PW, "confirm": PW},
+    )
 
 
 def test_with_email_new_accounts_confirm_before_setup(tmp_path: Path) -> None:
@@ -126,7 +129,8 @@ def test_change_password_keeps_this_device_signed_in_only(tmp_path: Path) -> Non
 def test_notices_toggle_and_account_view(tmp_path: Path) -> None:
     client, _store, _ = _site(tmp_path)
     _signup(client)
-    assert client.get("/api/account").json() == {"email": "ada@example.com", "verified": False,
+    assert client.get("/api/account").json() == {"email": "ada@example.com", "username": "ada",
+                                                 "verified": False,
                                                  "notify": True, "mail": True}  # fmt: skip
     client.post("/api/account/notify", json={"notify": False})
     assert client.get("/api/account").json()["notify"] is False
@@ -191,3 +195,17 @@ def test_pages_exist(tmp_path: Path) -> None:
         assert client.get(path).status_code == 200
     _signup(client)
     assert "Delete your account" in client.get("/account").text
+
+
+def test_choose_a_username_on_the_account_page(tmp_path: Path) -> None:
+    client, store, _ = _site(tmp_path, mail=False)
+    store.create("old@example.com", PW)  # an account from before usernames
+    client.post("/signin", data={"login": "old@example.com", "password": PW})
+    assert client.get("/api/account").json()["username"] is None
+    bad = client.post("/api/account/username", json={"username": "x"})
+    assert bad.status_code == 400 and bad.json()["code"] == "username"
+    assert client.post("/api/account/username", json={"username": "Oldie"}).json() == {
+        "ok": True, "username": "oldie"}  # fmt: skip
+    other = TestClient(client.app, follow_redirects=False)
+    assert other.post("/signin", data={"login": "oldie", "password": PW}).status_code == 303
+    assert other.get("/api/me").json()["user"]["name"] == "oldie"

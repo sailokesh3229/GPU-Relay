@@ -57,6 +57,10 @@ class PasswordForm(BaseModel):
     new: str = Field(max_length=passwords.MAX_LEN)
 
 
+class UsernameForm(BaseModel):
+    username: str = Field(max_length=64)
+
+
 class NotifyForm(BaseModel):
     notify: bool
 
@@ -97,7 +101,8 @@ def account_router(
     @router.get("/api/account")
     def account(request: Request) -> dict[str, Any]:
         user = me(request)
-        return {"email": user.email, "verified": user.email_verified, "notify": user.notify,
+        return {"email": user.email, "username": user.username,
+                "verified": user.email_verified, "notify": user.notify,
                 "mail": mailer is not None}  # fmt: skip
 
     @router.post("/api/account/verify-email")
@@ -177,6 +182,14 @@ def account_router(
         fresh = store.get(user.id)
         assert fresh is not None
         return issue_session(JSONResponse({"ok": True}), fresh)  # other devices signed out
+
+    @router.post("/api/account/username")
+    def set_username(form_: UsernameForm, request: Request) -> Any:
+        try:
+            name = store.set_username(me(request).id, form_.username)
+        except AccountError as exc:
+            return JSONResponse({"detail": str(exc), "code": exc.code}, status_code=400)
+        return {"ok": True, "username": name}
 
     @router.post("/api/account/notify")
     def set_notify(form_: NotifyForm, request: Request) -> dict[str, bool]:

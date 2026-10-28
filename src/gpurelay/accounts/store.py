@@ -35,7 +35,8 @@ SCHEMA = (
         session_epoch INTEGER NOT NULL DEFAULT 0,
         email_verified INTEGER NOT NULL DEFAULT 0,
         active INTEGER NOT NULL DEFAULT 0,
-        notify INTEGER NOT NULL DEFAULT 1
+        notify INTEGER NOT NULL DEFAULT 1,
+        username TEXT
     )""",
     # Platform tokens, sealed by accounts/vault.py (never stored in plain text).
     """CREATE TABLE IF NOT EXISTS secrets (
@@ -65,8 +66,12 @@ ADDED_USER_COLUMNS = {
     "email_verified": "INTEGER NOT NULL DEFAULT 0",
     "active": "INTEGER NOT NULL DEFAULT 0",
     "notify": "INTEGER NOT NULL DEFAULT 1",
+    "username": "TEXT",  # accounts made before usernames have none until they pick one
 }
-USER_COLUMNS = "id, email, created_at, session_epoch, email_verified, active, notify"
+USER_COLUMNS = "id, email, created_at, session_epoch, email_verified, active, notify, username"
+# Unique where set (both databases allow many NULLs in a unique index).
+USERNAME_INDEX = "CREATE UNIQUE INDEX IF NOT EXISTS users_username ON users (username)"
+USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,29}$")
 
 
 class AccountError(GpuRelayError):
@@ -86,10 +91,27 @@ class User:
     email_verified: bool = False
     active: bool = False  # has jobs that need its controller (started when the site starts)
     notify: bool = True  # email when a job needs the user, finishes or fails
+    username: str | None = None
+
+    @property
+    def name(self) -> str:
+        """What the site calls the user: the username, else the email."""
+        return self.username or self.email
 
 
 def normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def normalize_username(username: str) -> str:
+    return username.strip().lower()
+
+
+def username_problem(username: str) -> str | None:
+    if not USERNAME_RE.match(username):
+        return ("use 3 to 30 letters, digits, dots, dashes or underscores, starting with a "
+                "letter or digit")  # fmt: skip
+    return None
 
 
 def email_problem(email: str) -> str | None:
@@ -118,6 +140,7 @@ class UserStore:
         for statement in SCHEMA:
             self._run(statement)
         self._add_missing_columns()
+        self._run(USERNAME_INDEX)
 
     def _add_missing_columns(self) -> None:
         """Columns added after a database was created (CREATE TABLE IF NOT EXISTS keeps the
@@ -174,7 +197,7 @@ class UserStore:
             return None
         return User(id=row[0], email=row[1], created_at=float(row[2]), session_epoch=int(row[3]),
                     email_verified=bool(row[4]), active=bool(row[5]),
-                    notify=bool(row[6]))  # fmt: skip
+                    notify=bool(row[6]), username=row[7] or None)  # fmt: skip
 
     def get(self, user_id: str) -> User | None:
         return self._user(self._one(f"SELECT {USER_COLUMNS} FROM users WHERE id = ?", (user_id,)))
@@ -185,6 +208,10 @@ class UserStore:
                 f"SELECT {USER_COLUMNS} FROM users WHERE email = ?", (normalize_email(email),)
             )
         )
+
+    def find_username(self, username: str) -> User | None:
+        sql = f"SELECT {USER_COLUMNS} FROM users WHERE username = ?"
+        return self._user(self._one(sql, (normalize_username(username),)))
 
     def _all(self, sql: str, args: Sequence[Any] = ()) -> list[tuple[Any, ...]]:
         with self._cursor() as cur:
@@ -210,37 +237,63 @@ class UserStore:
             self._run(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
         self._run("DELETE FROM users WHERE id = ?", (user_id,))
 
-    def create(self, email: str, password: str) -> User:
+    def create(self, email: str, password: str, username: str | None = None) -> User:
         email = normalize_email(email)
+        name = normalize_username(username) if username is not None else None
         if email_problem(email):
             raise AccountError(email_problem(email) or "", "email")
+        if name is not None and username_problem(name):
+            raise AccountError(username_problem(name) or "", "username")
         if passwords.problem(password):
             raise AccountError(passwords.problem(password) or "", "password")
+        if name is not None and self.find_username(name) is not None:
+            raise AccountError("this username is taken", "taken")
         user = User(id="u-" + secrets.token_hex(8), email=email, created_at=self.clock(),
-                    session_epoch=0)  # fmt: skip
+                    session_epoch=0, username=name)  # fmt: skip
         try:
             self._run(
-                "INSERT INTO users (id, email, password_hash, created_at, session_epoch) "
-                "VALUES (?, ?, ?, ?, 0)",
-                (user.id, email, passwords.hash_password(password), user.created_at),
+                "INSERT INTO users (id, email, password_hash, created_at, session_epoch, "
+                "username) VALUES (?, ?, ?, ?, 0, ?)",
+                (user.id, email, passwords.hash_password(password), user.created_at, name),
             )
         except Exception as exc:
             if self._unique_violation(exc):
+                if name is not None and self.find_username(name) is not None:
+                    raise AccountError("this username is taken", "taken") from None
                 raise AccountError("an account with this email already exists", "exists") from None
             raise
         return user
 
-    def authenticate(self, email: str, password: str) -> User | None:
+    def authenticate(self, login: str, password: str) -> User | None:
+        """The user whose email or username is ``login`` and whose password matches."""
+        if "@" in login:
+            column, value = "email", normalize_email(login)
+        else:
+            column, value = "username", normalize_username(login)
         row = self._one(
-            f"SELECT {USER_COLUMNS}, password_hash FROM users WHERE email = ?",
-            (normalize_email(email),),
+            f"SELECT {USER_COLUMNS}, password_hash FROM users WHERE {column} = ?", (value,)
         )
         if row is None:
             passwords.dummy_check(password)
             return None
-        if not passwords.verify_password(password, row[7]):
+        if not passwords.verify_password(password, row[8]):
             return None
-        return self._user(row[:7])
+        return self._user(row[:8])
+
+    def set_username(self, user_id: str, username: str) -> str:
+        name = normalize_username(username)
+        if username_problem(name):
+            raise AccountError(username_problem(name) or "", "username")
+        holder = self.find_username(name)
+        if holder is not None and holder.id != user_id:
+            raise AccountError("this username is taken", "taken")
+        try:
+            self._run("UPDATE users SET username = ? WHERE id = ?", (name, user_id))
+        except Exception as exc:
+            if self._unique_violation(exc):
+                raise AccountError("this username is taken", "taken") from None
+            raise
+        return name
 
     def set_password(self, user_id: str, password: str) -> None:
         """New password; every existing session of the user ends."""

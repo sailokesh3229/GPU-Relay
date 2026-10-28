@@ -102,3 +102,31 @@ def test_an_older_database_gets_the_new_columns(tmp_path: Path) -> None:
     store = UserStore(f"sqlite:///{path}")
     user = store.create("ada@example.com", GOOD)
     assert store.authenticate("ada@example.com", GOOD) == user and user.notify
+
+
+def test_sign_in_with_username_or_email(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    user = store.create("ada@example.com", GOOD, "Ada.L")
+    assert user.username == "ada.l" and user.name == "ada.l"
+    for login in ("ada.l", "ADA.L ", "ada@example.com"):
+        assert store.authenticate(login, GOOD) == user
+    assert store.authenticate("ada.l", "wrong password!") is None
+    with pytest.raises(AccountError) as taken:
+        store.create("other@example.com", GOOD, "ada.L")
+    assert taken.value.code == "taken" and store.count() == 1
+    for bad in ("ab", "-ada", "a" * 31, "ada lovelace", "ada@x"):
+        with pytest.raises(AccountError) as err:
+            store.create("x@example.com", GOOD, bad)
+        assert err.value.code == "username"
+
+
+def test_an_account_without_a_username_can_choose_one(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    old = store.create("old@example.com", GOOD)  # made before usernames
+    assert old.username is None and old.name == "old@example.com"
+    store.create("bob@example.com", GOOD, "bob")
+    with pytest.raises(AccountError):
+        store.set_username(old.id, "Bob")
+    assert store.set_username(old.id, "Oldie") == "oldie"
+    assert store.authenticate("oldie", GOOD) is not None
+    assert store.set_username(old.id, "oldie") == "oldie"  # keeping your own is fine

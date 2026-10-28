@@ -43,7 +43,10 @@ a{color:var(--accent)}
     <svg width="26" height="26" viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#2952CC"></rect><path d="M7 17h5l3-6 3 6h3" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>
     GPU Relay
   </a>
-  <a href="/">Back</a>
+  <nav style="display:flex;gap:14px;font-size:13px">
+    <a href="/setup">Set up accounts</a>
+    <a href="/app/">Open my GPU Relay</a>
+  </nav>
 </header>
 <main>
   <div>
@@ -56,6 +59,17 @@ a{color:var(--accent)}
     <h2>Confirm your email</h2>
     <p class="muted">We sent you a link when you signed up. Confirm it to connect your platforms and get job emails.</p>
     <form id="resend"><span class="msg" role="status"></span><div class="btns"><button type="submit">Send the link again</button></div></form>
+  </section>
+
+  <section class="card">
+    <h2>Username</h2>
+    <p class="muted" id="username-hint">You can sign in with your username or your email.</p>
+    <form id="username">
+      <label style="max-width:320px">Username (3 to 30 letters, digits, dots, dashes or underscores)
+        <input name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="3" maxlength="30" required></label>
+      <span class="msg" role="status"></span>
+      <div class="btns"><button type="submit">Save username</button></div>
+    </form>
   </section>
 
   <section class="card">
@@ -107,12 +121,18 @@ async function post(path, payload) {
   return data;
 }
 fetch("/api/account").then((r) => { if (r.status === 401) location.href = "/signin"; return r.json(); }).then((a) => {
-  $("#email").textContent = "Signed in as " + a.email;
+  $("#email").textContent = "Signed in as " + (a.username ? a.username + " (" + a.email + ")" : a.email);
+  $("#username").username.value = a.username || "";
+  if (!a.username) $("#username-hint").textContent = "Choose a username, then you can sign in with it or with your email.";
   $("#verify").hidden = !a.mail || a.verified;
   $("#notify").notify.checked = a.notify;
   if (!a.mail) { $("#notify").notify.disabled = true; $("#notify-hint").textContent = "This site sends no email; job notices appear in your GPU Relay."; }
 });
 $("#resend").addEventListener("submit", async (ev) => { ev.preventDefault(); try { await post("/api/account/verify-email", {}); say(ev.target, "Sent. Check your inbox.", "good"); } catch (e) { say(ev.target, e.message, "bad"); } });
+$("#username").addEventListener("submit", async (ev) => {
+  ev.preventDefault(); const f = ev.target;
+  try { const r = await post("/api/account/username", {username: f.username.value}); f.username.value = r.username; say(f, "Saved. Sign in with " + r.username + " or your email.", "good"); } catch (e) { say(f, e.message, "bad"); }
+});
 $("#notify").notify.addEventListener("change", async (ev) => { try { await post("/api/account/notify", {notify: ev.target.checked}); say($("#notify"), "Saved.", "good"); } catch (e) { say($("#notify"), e.message, "bad"); } });
 $("#password").addEventListener("submit", async (ev) => {
   ev.preventDefault(); const f = ev.target;

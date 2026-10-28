@@ -46,100 +46,65 @@ a{color:var(--accent)}
 </header>
 <main>
   <section class="card" id="intro">
-    <h1 id="headline">Finish long ML jobs on free GPUs</h1>
-    <p class="muted">GPU Relay checkpoints your training or evaluation script, hands it off before a
-      session or quota limit ends it, and resumes it on another free platform. Results match one
-      uninterrupted run. It uses your own accounts; paid GPU time only within limits you set ($0 by default).</p>
+    <h1>Finish long ML jobs on free GPUs</h1>
+    <p class="muted">Free GPU sessions end after a few hours. GPU Relay saves your training or evaluation job
+      before a session ends and continues it in the next free session, on Kaggle, Modal or Colab. The results are
+      the same as one run without breaks. It uses your own accounts, and it never pays for GPU time unless you allow it.</p>
     <div class="actions" id="cta">
       <a class="btn primary" href="/signup">Create an account</a>
       <a class="btn" href="/signin">Sign in</a>
     </div>
-    <p class="note" id="next" hidden></p>
   </section>
 
   <section class="card">
     <div>
-      <h2>Before you start: what you need</h2>
-      <p class="muted">Gather these first. Each token is checked when you add it and stored encrypted; it is never shown again.</p>
+      <h2>How it works</h2>
+      <p class="muted">Three steps. You do steps 1 and 2 once.</p>
     </div>
     <ol>
-      <li><div><strong>A GPU Relay account</strong><span class="need">required</span>
-        <ul><li>Your email and a password of 12 or more characters (and the invite code, if the server asks for one).</li></ul></div></li>
-      <li><div><strong>Hugging Face: account and a write token</strong><span class="need">required</span>
-        <ul><li>Sign up at huggingface.co.</li>
-          <li>Settings → Access Tokens → Create new token with <em>write</em> access.</li>
-          <li>GPU Relay creates a private storage repo in your account for your jobs and checkpoints.</li></ul></div></li>
-      <li><div><strong>Kaggle: account, verified phone, API token</strong><span class="need">required for automatic free GPUs</span>
-        <ul><li>Sign up at kaggle.com and verify your phone number (Kaggle gives GPUs only after that), about 30 GPU-hours a week.</li>
-          <li>Settings → API → Create New Token, then paste it here.</li></ul></div></li>
-      <li><div><strong>Modal: account, payment method, API token</strong><span class="need opt">optional</span>
-        <ul><li>Sign up at modal.com and add a payment method: Modal starts GPUs only then. It includes $30 of free compute a month.</li>
-          <li>Settings → API Tokens → New Token: paste the token id and the secret, and confirm Modal's terms.</li>
-          <li>GPU Relay uses only the free credit unless you raise your paid limit (default $0).</li></ul></div></li>
-      <li><div><strong>Google Colab: a secret for your notebooks</strong><span class="need opt">optional</span>
-        <ul><li>In Colab, open the key icon (Secrets), add <code>GPURELAY_HF_TOKEN</code> with your Hugging Face token, and allow notebook access.</li>
-          <li>When a job needs Colab you get a notice and a notebook: open it in Colab and press Run all. GPU Relay never drives Colab itself.</li></ul></div></li>
-      <li><div><strong>Your choices</strong><span class="need opt">defaults are fine</span>
-        <ul><li>Colab first or as a fallback, how long to wait for Run all (30 min), and your paid limit ($0).</li></ul></div></li>
-      <li><div><strong>Your job</strong><span class="need">required</span>
-        <ul><li>A Python script (.py) or notebook (.ipynb), plus requirements.txt if it needs extra packages.</li>
-          <li>Before you submit, GPU Relay checks whether it can resume; most scripts need no changes.</li></ul></div></li>
+      <li><div><strong>Create your GPU Relay account</strong>
+        <ul><li>Choose a username, enter your email, and pick a password of 12 or more characters.</li></ul></div></li>
+      <li><div><strong>Connect your accounts</strong>
+        <ul><li>After you sign up, the Set up page asks for the tokens listed below, one at a time.</li>
+          <li>Each token is checked with its platform before it is saved, then stored encrypted.</li></ul></div></li>
+      <li><div><strong>Open your GPU Relay and submit a job</strong>
+        <ul><li>Upload a Python script (.py) or a notebook (.ipynb). GPU Relay first checks that it can continue the job after a break.</li>
+          <li>Most scripts need no changes. You can close the page: the job keeps running.</li></ul></div></li>
     </ol>
   </section>
 
   <section class="card">
-    <h2>What GPU Relay does for you</h2>
-    <p class="muted">Starts sessions on Kaggle and Modal through their official APIs (always private), checkpoints at safe points,
-      hands off before limits, notifies you when a job needs you on Colab or finishes, and keeps your outputs. Your code
-      runs only on your own platform accounts, never on this server.</p>
+    <div>
+      <h2>What to have ready</h2>
+      <p class="muted">You need the first two. The others are optional.</p>
+    </div>
+    <ol>
+      <li><div><strong>Hugging Face</strong><span class="need">required</span>
+        <ul><li>A free account on huggingface.co, and a token with write access (Settings → Access Tokens).</li>
+          <li>Why: your jobs and their saved progress are kept in a private dataset in your account.</li></ul></div></li>
+      <li><div><strong>Kaggle</strong><span class="need">required for free GPUs</span>
+        <ul><li>A free account on kaggle.com with a verified phone number. Kaggle only gives GPUs to verified accounts.</li>
+          <li>An API token (Settings → API → Create New Token).</li>
+          <li>Why: Kaggle gives about 30 free GPU hours each week, and GPU Relay starts the sessions for you.</li></ul></div></li>
+      <li><div><strong>Modal</strong><span class="need opt">optional</span>
+        <ul><li>An account on modal.com with a payment method added (Modal needs one before it starts GPUs), and an API token.</li>
+          <li>Why: $30 of free GPU use each month. GPU Relay never pays beyond that unless you raise your limit.</li></ul></div></li>
+      <li><div><strong>Google Colab</strong><span class="need opt">optional</span>
+        <ul><li>A Google account. In Colab, add a secret named <code>GPURELAY_HF_TOKEN</code> that holds your Hugging Face token.</li>
+          <li>Why: more free GPU time. When a job needs Colab, you open the notebook GPU Relay gives you and press Run all.</li></ul></div></li>
+    </ol>
+  </section>
+
+  <section class="card">
+    <h2>Your code and tokens stay yours</h2>
+    <p class="muted">Your jobs run only in your own Kaggle, Modal or Colab sessions, never on this website's server.
+      Everything GPU Relay creates in your accounts is private. Other users cannot see your jobs or your tokens.</p>
   </section>
 </main>
 <script>
-const $ = (id) => document.getElementById(id);
 fetch("/api/me").then((r) => r.json()).then((me) => {
-  if (!me.user) {
-    if (!me.signup.open) $("cta").firstElementChild.hidden = true;
-    return;
-  }
-  const who = $("who");
-  who.textContent = "";
-  const email = document.createElement("span");
-  email.textContent = me.user.email;
-  const out = document.createElement("form");
-  out.method = "post"; out.action = "/signout";
-  const btn = document.createElement("button");
-  btn.className = "btn small"; btn.type = "submit"; btn.textContent = "Sign out";
-  out.append(btn);
-  const all = document.createElement("form");
-  all.method = "post"; all.action = "/signout-everywhere";
-  const btn2 = document.createElement("button");
-  btn2.className = "btn small"; btn2.type = "submit"; btn2.textContent = "Sign out everywhere";
-  all.append(btn2);
-  const account = document.createElement("a");
-  account.className = "btn small"; account.href = "/account"; account.textContent = "Account";
-  who.append(email, account, out, all);
-  if (!me.user.verified) {
-    $("headline").textContent = "Confirm your email";
-    $("cta").hidden = true;
-    $("next").hidden = false;
-    $("next").textContent = "We sent you a link. Confirm your email, then connect your platforms. (Account page: send it again.)";
-    return;
-  }
-  $("headline").textContent = "Welcome to GPU Relay";
-  const cta = $("cta");
-  cta.textContent = "";
-  const open = document.createElement("a");
-  open.className = "btn primary"; open.href = "/app/"; open.textContent = "Open my GPU Relay";
-  const setup = document.createElement("a");
-  setup.className = "btn"; setup.href = "/setup"; setup.textContent = "Set up accounts";
-  cta.append(open, setup);
-  fetch("/api/setup").then((r) => r.json()).then((s) => {
-    $("next").hidden = false;
-    $("next").textContent = s.ready
-      ? "Your accounts are connected. Open your GPU Relay to submit a job."
-      : "Next: connect Hugging Face and at least one GPU platform in Set up accounts (the list below says what to bring).";
-    if (!s.ready) { cta.prepend(setup); setup.className = "btn primary"; open.className = "btn"; }
-  }).catch(() => {});
+  if (me.user) { location.replace("/setup"); return; }  // signed in: the server normally sends you on
+  if (!me.signup.open) document.querySelector("#cta .primary").hidden = true;
 }).catch(() => {});
 </script>
 </body>

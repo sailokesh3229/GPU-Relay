@@ -261,3 +261,37 @@ def test_unfinished_jobs_per_user_are_limited(forwarding: Any) -> None:
 
 def test_free_port_is_usable() -> None:
     assert 0 < children_mod.free_port() < 65536
+
+
+def test_signing_in_goes_to_setup_until_ready_then_to_the_app(forwarding: Any) -> None:
+    w, client, _ = forwarding
+    response = client.post("/signup", data={"username": "cyrus", "email": "cy@example.com",
+                                            "password": PW, "confirm": PW})  # fmt: skip
+    assert response.headers["location"] == "/setup"  # nothing connected yet
+    assert client.get("/").headers["location"] == "/setup"  # the front page sends you on
+    cy = w.store.find("cy@example.com")
+    w.spaces.put_secrets(cy.id, {"hf_token": "hf_" + "x" * 30})
+    config = w.spaces.config(cy.id)
+    config.storage.hf_repo_id = "cy/gpurelay-store"
+    config.backends.colab_manual.enabled = True
+    w.spaces.save_config(cy.id, config)
+    assert client.get("/api/setup").json()["ready"] is True
+    assert client.get("/").headers["location"] == "/app/"
+    again = TestClient(client.app, follow_redirects=False)
+    assert again.post("/signin", data={"login": "Cyrus", "password": PW}).headers[
+        "location"] == "/app/"  # fmt: skip
+
+
+def test_the_app_page_has_a_bar_back_to_setup_and_account(forwarding: Any) -> None:
+    w, client, _ = forwarding
+    w.user("ada@example.com")
+    _sign_in(client, "ada@example.com")
+
+    response = client.get("/app/")
+    assert response.status_code == 200
+    from gpurelay.gateway.proxy import with_site_bar
+
+    out = with_site_bar(b"<html><body><main>x</main></body></html>", "<ada>").decode()
+    assert out.index('href="/setup"') < out.index("<main>") and "&lt;ada&gt;" in out
+    assert 'action="/signout"' in out and 'href="/account"' in out
+    assert with_site_bar(b"no body tag", "ada") == b"no body tag"

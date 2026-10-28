@@ -37,6 +37,14 @@ button:disabled{opacity:.6;cursor:wait}
 ul{margin:0;padding-left:18px;color:var(--muted)}
 a{color:var(--accent)}
 .note{padding:12px 14px;border-radius:10px;background:var(--soft)}
+nav.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px}
+nav.top form{margin:0}
+button.small{min-height:30px;padding:0 10px;font-size:13px}
+.go{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-radius:12px;background:var(--soft);border:1px solid var(--line)}
+.go p{margin:0;font-weight:500}
+a.button{display:inline-flex;align-items:center;min-height:40px;padding:0 16px;border-radius:8px;background:var(--accent);color:var(--accent-ink);font-weight:600;text-decoration:none}
+a.button[aria-disabled="true"]{background:var(--line);color:var(--muted);pointer-events:none}
+.go.done{background:var(--good-soft);border-color:var(--good)}
 </style>
 </head>
 <body>
@@ -45,19 +53,27 @@ a{color:var(--accent)}
     <svg width="26" height="26" viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#2952CC"></rect><path d="M7 17h5l3-6 3 6h3" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>
     GPU Relay
   </a>
-  <a href="/">Back</a>
+  <nav class="top">
+    <span class="muted" id="who"></span>
+    <a href="/account">Account</a>
+    <form method="post" action="/signout"><button class="plain small" type="submit">Sign out</button></form>
+  </nav>
 </header>
 <main>
   <div>
     <h1>Set up your accounts</h1>
-    <p class="muted">Each token is checked with its platform before it is kept, stored encrypted, and never shown again. Paste a new one any time to replace it.</p>
+    <p class="muted">Connect the accounts GPU Relay uses for you. Step 1 and one GPU platform (step 2, 3 or 4) are enough to start.
+      Each token is checked with its platform before it is saved, then stored encrypted. It is never shown again; paste a new one any time to replace it.</p>
   </div>
-  <p class="note" id="ready">Loading…</p>
+  <div class="go" id="go">
+    <p id="ready">Loading…</p>
+    <a class="button" id="open" href="/app/" aria-disabled="true">Open my GPU Relay →</a>
+  </div>
 
   <section class="card" id="hf">
     <div class="head"><h2>1. Hugging Face storage <span class="muted">(required)</span></h2><span class="pill" id="hf-state">Not connected</span></div>
-    <ul><li>huggingface.co → Settings → Access Tokens → Create new token with <strong>write</strong> access.</li>
-      <li>GPU Relay creates a private dataset repo for your jobs and checkpoints (default name gpurelay-store).</li></ul>
+    <ul><li>On huggingface.co, open Settings → Access Tokens and create a token with <strong>write</strong> access. Paste it below.</li>
+      <li>GPU Relay keeps your jobs and checkpoints in a private dataset in your account. The name is <code>gpurelay-store</code> unless you type another one.</li></ul>
     <form data-step="hf">
       <div class="row">
         <label>Access token (hf_…)<input name="token" type="password" autocomplete="off" required maxlength="400"></label>
@@ -70,9 +86,9 @@ a{color:var(--accent)}
 
   <section class="card" id="kaggle">
     <div class="head"><h2>2. Kaggle GPUs <span class="muted">(about 30 free GPU-hours a week)</span></h2><span class="pill" id="kaggle-state">Not connected</span></div>
-    <ul><li>Verify your phone number on kaggle.com first: Kaggle gives GPUs only after that.</li>
-      <li>kaggle.com → Settings → API → Create New Token. Paste the token (or the whole kaggle.json).</li>
-      <li>GPU Relay keeps a private Kaggle dataset, gpurelay-secrets, that lets your Kaggle sessions reach your storage.</li></ul>
+    <ul><li>First verify your phone number on kaggle.com. Kaggle only gives GPUs to verified accounts.</li>
+      <li>On kaggle.com, open Settings → API and click Create New Token. Paste the token below (or the whole kaggle.json file).</li>
+      <li>GPU Relay adds a private dataset named <code>gpurelay-secrets</code> to your Kaggle account. Your Kaggle sessions use it to reach your storage.</li></ul>
     <form data-step="kaggle">
       <div class="row">
         <label>Kaggle API token<textarea name="token" maxlength="4096" spellcheck="false" autocomplete="off"></textarea></label>
@@ -85,8 +101,9 @@ a{color:var(--accent)}
 
   <section class="card" id="modal">
     <div class="head"><h2>3. Modal GPUs <span class="muted">(optional, $30 free a month)</span></h2><span class="pill" id="modal-state">Not connected</span></div>
-    <ul><li>modal.com: add a payment method (Modal starts GPUs only then), then Settings → API Tokens → New Token.</li>
-      <li>GPU Relay uses only the free credit unless you raise your paid limit below.</li></ul>
+    <ul><li>On modal.com, add a payment method first. Modal only starts GPUs after that, and you still get $30 of free use each month.</li>
+      <li>Then open Settings → API Tokens, click New Token, and paste the token id and the token secret below.</li>
+      <li>GPU Relay only uses the free $30 unless you raise your paid limit in step 5.</li></ul>
     <form data-step="modal">
       <div class="row">
         <label>Token id<input name="token_id" type="password" autocomplete="off" required maxlength="400"></label>
@@ -101,8 +118,8 @@ a{color:var(--accent)}
 
   <section class="card" id="colab">
     <div class="head"><h2>4. Google Colab <span class="muted">(optional, you press Run all)</span></h2><span class="pill" id="colab-state">Off</span></div>
-    <ul><li>In Colab, open the key icon (Secrets), add <code>GPURELAY_HF_TOKEN</code> with your Hugging Face token, and allow notebook access.</li>
-      <li>When a job needs Colab, GPU Relay shows a notebook to open; GPU Relay never drives Colab itself.</li></ul>
+    <ul><li>In Colab, click the key icon (Secrets) on the left. Add a secret named <code>GPURELAY_HF_TOKEN</code> whose value is your Hugging Face token, and turn on notebook access.</li>
+      <li>When a job needs Colab, you get a notebook to open. Open it in Colab and press Run all. GPU Relay never controls Colab itself.</li></ul>
     <form data-step="colab">
       <label class="check"><input type="checkbox" name="enabled"> Use Colab</label>
       <label class="check"><input type="checkbox" name="first"> Ask for Colab before Kaggle and Modal</label>
@@ -114,7 +131,7 @@ a{color:var(--accent)}
 
   <section class="card" id="limits">
     <div class="head"><h2>5. Limits</h2></div>
-    <ul><li>Paid Modal time a month after the free credit. 0 means GPU Relay never pays (set Modal's own spending limit too).</li></ul>
+    <ul><li>How much paid Modal time GPU Relay may use each month after the free $30. 0 means it never pays. Set the same limit in Modal's own settings too.</li></ul>
     <form data-step="limits">
       <div class="row">
         <label>Paid Modal limit (USD a month)<input name="modal_paid_cap_usd" type="number" min="0" step="1" value="0"></label>
@@ -145,8 +162,11 @@ function render(s) {
   const limits = $('form[data-step="limits"]');
   limits.modal_paid_cap_usd.value = st.modal.paid_cap_usd; limits.kaggle_weekly_hours.value = st.kaggle.weekly_hours;
   $("#ready").textContent = s.ready
-    ? "You are ready: submit jobs from your GPU Relay."
-    : st.hf.connected ? "Next: connect at least one GPU platform (Kaggle, Modal or Colab)." : "Start with step 1: Hugging Face storage.";
+    ? "All set. Your GPU Relay is ready: open it to submit a job."
+    : st.hf.connected ? "Step 1 is done. Now connect at least one GPU platform: Kaggle (step 2), Modal (step 3) or Colab (step 4)."
+    : "Start with step 1: connect Hugging Face storage.";
+  $("#open").setAttribute("aria-disabled", s.ready ? "false" : "true");
+  $("#go").classList.toggle("done", s.ready);
 }
 const load = () => fetch("/api/setup").then((r) => { if (r.status === 401) location.href = "/signin"; return r.json(); }).then(render);
 function body(form) {
@@ -168,6 +188,7 @@ async function send(form, path, payload) {
     form.querySelectorAll('input[type=password], textarea').forEach((i) => (i.value = ""));
     say(form, data.kaggle_warning || "Saved.", data.kaggle_warning ? "bad" : "good");
     await load();
+    if (state && state.ready && !data.kaggle_warning) say(form, "Saved. You are ready: use Open my GPU Relay at the top.", "good");
   } catch (e) { say(form, "The server did not answer. Try again.", "bad"); }
   finally { buttons.forEach((b) => (b.disabled = false)); }
 }
@@ -177,6 +198,7 @@ document.querySelectorAll("form[data-step]").forEach((form) => {
   if (rm) rm.addEventListener("click", () => send(form, "/api/setup/remove", {name: rm.dataset.remove}));
 });
 load();
+fetch("/api/me").then((r) => r.json()).then((me) => { if (me.user) $("#who").textContent = "Signed in as " + me.user.name; }).catch(() => {});
 </script>
 </body>
 </html>

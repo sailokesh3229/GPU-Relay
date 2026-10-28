@@ -28,7 +28,8 @@ def _client(settings: GatewaySettings) -> TestClient:
 
 def _signup(client: TestClient, email: str, password: str = PW, **extra: str) -> Any:
     confirm = extra.pop("confirm", password)
-    data = {"email": email, "password": password, "confirm": confirm, **extra}
+    username = extra.pop("username", email.split("@")[0] + "_u")
+    data = {"username": username, "email": email, "password": password, "confirm": confirm, **extra}
     return client.post("/signup", data=data)
 
 
@@ -36,9 +37,14 @@ def test_sign_up_signs_in_and_shows_the_account(tmp_path: Path) -> None:
     client = _client(_settings(tmp_path))
     assert client.get("/api/me").json()["user"] is None
     response = _signup(client, "ada@example.com")
-    assert response.status_code == 303 and response.headers["location"] == "/"
+    assert response.status_code == 303 and response.headers["location"] == "/account"
     assert "httponly" in response.headers["set-cookie"].lower()
-    assert client.get("/api/me").json()["user"] == {"email": "ada@example.com", "verified": True}
+    assert client.get("/api/me").json()["user"] == {
+        "email": "ada@example.com",
+        "username": "ada_u",
+        "name": "ada_u",
+        "verified": True,
+    }
     client.post("/signout")
     assert client.get("/api/me").json()["user"] is None
 
@@ -69,7 +75,7 @@ def test_sign_up_limits_invite_code_and_mismatch(tmp_path: Path) -> None:
     assert "e=invite" in _signup(client, "a@example.com", invite="wrong").headers["location"]
     mismatch = _signup(client, "a@example.com", invite="let-me-in", confirm="something else!")
     assert "e=mismatch" in mismatch.headers["location"]
-    assert _signup(client, "a@example.com", invite="let-me-in").headers["location"] == "/"
+    assert _signup(client, "a@example.com", invite="let-me-in").headers["location"] == "/account"
     other = _client(_settings(tmp_path, max_users=1, invite_code="let-me-in"))
     assert "e=full" in _signup(other, "b@example.com", invite="let-me-in").headers["location"]
     assert other.get("/api/me").json()["signup"] == {"open": False, "invite": True}
@@ -79,7 +85,9 @@ def test_errors_are_codes_never_free_text(tmp_path: Path) -> None:
     client = _client(_settings(tmp_path))
     _signup(client, "ada@example.com")
     again = _client(_settings(tmp_path))
-    assert "e=exists" in _signup(again, "ada@example.com").headers["location"]
+    assert "e=exists" in _signup(again, "ada@example.com", username="other").headers["location"]
+    assert "e=taken" in _signup(again, "new@example.com", username="ADA_U").headers["location"]
+    assert "e=username" in _signup(again, "new@example.com", username="a!").headers["location"]
     assert "e=password" in _signup(again, "bob@example.com", "short").headers["location"]
     assert "e=email" in _signup(again, "bob", PW).headers["location"]
 
@@ -96,9 +104,8 @@ def test_sign_out_everywhere_ends_other_sessions(tmp_path: Path) -> None:
 
 def test_cross_site_posts_are_refused(tmp_path: Path) -> None:
     client = _client(_settings(tmp_path))
-    response = client.post("/signup", data={"email": "a@example.com", "password": PW,
-                                            "confirm": PW},
-                           headers={"origin": "https://evil.example"})  # fmt: skip
+    data = {"username": "ann", "email": "a@example.com", "password": PW, "confirm": PW}
+    response = client.post("/signup", data=data, headers={"origin": "https://evil.example"})
     assert response.status_code == 403
     assert client.get("/api/me").json()["user"] is None
     other_site = {"origin": "null", "referer": "https://evil.example/page"}
@@ -119,9 +126,9 @@ def test_cross_site_posts_are_refused(tmp_path: Path) -> None:
 )
 def test_every_browser_can_sign_up(tmp_path: Path, headers: dict[str, str]) -> None:
     client = _client(_settings(tmp_path))
-    data = {"email": "ada@example.com", "password": PW, "confirm": PW}
+    data = {"username": "ada", "email": "ada@example.com", "password": PW, "confirm": PW}
     response = client.post("/signup", data=data, headers=headers)
-    assert response.status_code == 303 and response.headers["location"] == "/"
+    assert response.status_code == 303 and response.headers["location"] == "/account"
     assert client.get("/api/me").json()["user"]["email"] == "ada@example.com"
 
 

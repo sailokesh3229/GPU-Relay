@@ -8,6 +8,7 @@ user process's own cookies are not passed back.
 
 from __future__ import annotations
 
+import html
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -22,6 +23,27 @@ from gpurelay.gateway.children import Children, SiteFull
 FORWARD_REQUEST = ("content-type", "accept", "x-gpurelay-action", "range")
 FORWARD_RESPONSE = ("content-type", "content-disposition", "content-range", "accept-ranges")
 METHODS = ["GET", "POST", "PUT", "DELETE"]
+
+# A slim bar above the user's GPU Relay page: back to setup and the account without the
+# browser's back button. The app page is the same one the desktop app shows, so the bar is
+# added here, on the website only.
+SITE_BAR = (
+    '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 16px;'
+    'background:var(--card,#fff);border-bottom:1px solid var(--line,#e2e5ea);font-size:13px">'
+    '<a href="/setup" style="font-weight:600">Set up accounts</a>'
+    '<a href="/account">Account</a>'
+    '<span style="margin-left:auto;color:var(--muted,#5b6270)">Signed in as {name}</span>'
+    '<form method="post" action="/signout" style="margin:0">'
+    '<button type="submit" style="min-height:28px;padding:0 10px;border-radius:6px;'
+    'border:1px solid var(--line,#e2e5ea);background:transparent;cursor:pointer">'
+    "Sign out</button></form></div>"
+)
+
+
+def with_site_bar(page: bytes, name: str) -> bytes:
+    bar = SITE_BAR.replace("{name}", html.escape(name)).encode()
+    head, found, rest = page.partition(b"<body>")
+    return head + found + bar + rest if found else page
 
 
 def app_router(children: Children, client_factory: Any = None, max_jobs: int = 3) -> APIRouter:
@@ -75,6 +97,9 @@ def app_router(children: Children, client_factory: Any = None, max_jobs: int = 3
         except Exception:
             return JSONResponse({"detail": "your GPU Relay did not answer; try again"}, 502)
         kept = {k: v for k, v in upstream.headers.items() if k.lower() in FORWARD_RESPONSE}
-        return Response(upstream.content, status_code=upstream.status_code, headers=kept)
+        content = upstream.content
+        if path == "" and upstream.headers.get("content-type", "").startswith("text/html"):
+            content = with_site_bar(content, request.state.user.name)
+        return Response(content, status_code=upstream.status_code, headers=kept)
 
     return router

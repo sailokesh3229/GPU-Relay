@@ -22,7 +22,15 @@ from gpurelay.accounts.store import UserStore
 from gpurelay.accounts.vault import Vault, VaultError
 from gpurelay.config import Config, load_config
 from gpurelay.errors import GpuRelayError
-from gpurelay.gateway.userenv import SECRET_NAMES, server_rules, user_environment, write_home
+from gpurelay.gateway.userenv import (
+    HF,
+    KAGGLE,
+    MODAL_SECRET,
+    SECRET_NAMES,
+    server_rules,
+    user_environment,
+    write_home,
+)
 
 SETUP_TIMEOUT_S = 180.0
 WORKER = [sys.executable, "-m", "gpurelay.gateway.setup_worker"]
@@ -78,6 +86,20 @@ class UserSpaces:
 
     def save_config(self, user_id: str, config: Config) -> None:
         self.store.put_settings(user_id, server_rules(config).model_dump_json(exclude_none=True))
+
+    def ready(self, user_id: str) -> bool:
+        """Storage connected and at least one way to get GPUs (Kaggle, Modal or Colab)."""
+        config, saved = self.config(user_id), self.saved(user_id)
+        backends = config.backends
+        storage = (
+            HF in saved and config.storage.kind == "hf_hub" and bool(config.storage.hf_repo_id)
+        )
+        gpus = (
+            (KAGGLE in saved and backends.kaggle.enabled)
+            or (MODAL_SECRET in saved and backends.modal.enabled)
+            or backends.colab_manual.enabled
+        )
+        return storage and gpus
 
     def put_secrets(self, user_id: str, values: Mapping[str, str]) -> None:
         for name, value in values.items():

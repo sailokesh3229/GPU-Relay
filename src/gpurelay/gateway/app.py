@@ -221,11 +221,19 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
         return set_session(response, signer.issue(user.id, user.session_epoch),
                            int(signer.session_s))  # fmt: skip
 
-    def signed_in(user: User) -> Any:
-        return with_session(RedirectResponse("/", status_code=303), user)
+    def start_path(user: User) -> str:
+        """Where a signed-in user goes: setup until it is complete, then their GPU Relay."""
+        if settings.spaces is None:
+            return "/account"
+        if not settings.spaces.ready(user.id):
+            return "/setup"
+        return "/app/" if children is not None else "/setup"
 
-    def back(path: str, error: str, email: str = "") -> Any:
-        query = {"e": error, **({"email": email} if email else {})}
+    def signed_in(user: User) -> Any:
+        return with_session(RedirectResponse(start_path(user), status_code=303), user)
+
+    def back(path: str, error: str, **keep: str) -> Any:
+        query = {"e": error, **{k: v for k, v in keep.items() if v}}
         return RedirectResponse(f"{path}?{urlencode(query)}", status_code=303)
 
     async def form(request: Request) -> dict[str, str]:
@@ -233,7 +241,10 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
         return {k: v[0] for k, v in parse_qs(raw).items()}
 
     @app.get("/", response_class=HTMLResponse)
-    def home() -> str:
+    def home(request: Request) -> Any:
+        user: User | None = request.state.user
+        if user is not None:  # signed in: straight to the next thing to do
+            return RedirectResponse(start_path(user), status_code=303)
         return _page("home.html")
 
     @app.get("/signin", response_class=HTMLResponse)
@@ -248,19 +259,19 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
             return back("/signup", "busy")
         settings.signup_limiter.failed(client)  # every sign-up attempt counts
         data = await form(request)
-        email = data.get("email", "")
+        email, username = data.get("email", ""), data.get("username", "")
         if settings.invite_code is not None and not hmac.compare_digest(
             data.get("invite", "").strip().encode(), settings.invite_code.encode()
         ):
-            return back("/signup", "invite", email)
+            return back("/signup", "invite", email=email, username=username)
         if data.get("password", "") != data.get("confirm", ""):
-            return back("/signup", "mismatch", email)
+            return back("/signup", "mismatch", email=email, username=username)
         if store.count() >= settings.max_users:
-            return back("/signup", "full", email)
+            return back("/signup", "full", email=email, username=username)
         try:
-            user = await run_in_threadpool(store.create, email, data.get("password", ""))
+            user = await run_in_threadpool(store.create, email, data.get("password", ""), username)
         except AccountError as exc:
-            return back("/signup", exc.code, email)
+            return back("/signup", exc.code, email=email, username=username)
         if settings.mailer is not None:
             await run_in_threadpool(send_verification, store, settings.mailer, user)
         return signed_in(user)
@@ -271,12 +282,11 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
         if settings.signin_limiter.blocked(client):
             return back("/signin", "busy")
         data = await form(request)
-        user = await run_in_threadpool(
-            store.authenticate, data.get("email", ""), data.get("password", "")
-        )
+        login = data.get("login") or data.get("email", "")  # an email or a username
+        user = await run_in_threadpool(store.authenticate, login, data.get("password", ""))
         if user is None:
             settings.signin_limiter.failed(client)
-            return back("/signin", "wrong", data.get("email", ""))
+            return back("/signin", "wrong", login=login)
         return signed_in(user)
 
     @app.post("/signout")
@@ -297,6 +307,8 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
             if user is None
             else {
                 "email": user.email,
+                "username": user.username,
+                "name": user.name,
                 "verified": user.email_verified or settings.mailer is None,
             },
             "mail": settings.mailer is not None,

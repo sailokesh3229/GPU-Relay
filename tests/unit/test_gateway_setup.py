@@ -97,7 +97,10 @@ def site(tmp_path: Path) -> tuple[TestClient, UserSpaces, list[str]]:
     settings = GatewaySettings(store=store, signer=SessionSigner(b"k" * 32), spaces=spaces,
                                secure_cookie=False, after_change=changed.append)  # fmt: skip
     client = TestClient(create_gateway(settings), follow_redirects=False)
-    client.post("/signup", data={"email": "ada@example.com", "password": PW, "confirm": PW})
+    client.post(
+        "/signup",
+        data={"username": "ada", "email": "ada@example.com", "password": PW, "confirm": PW},
+    )
     fake_worker.calls.clear()  # type: ignore[attr-defined]
     return client, spaces, changed
 
@@ -191,7 +194,10 @@ def test_users_never_see_each_others_setup(site: Any) -> None:
     client, _, _ = site
     client.post("/api/setup/hf", json={"token": HF_TOKEN})
     bob = TestClient(client.app, follow_redirects=False)
-    bob.post("/signup", data={"email": "bob@example.com", "password": PW, "confirm": PW})
+    bob.post(
+        "/signup",
+        data={"username": "bob", "email": "bob@example.com", "password": PW, "confirm": PW},
+    )
     assert bob.get("/api/setup").json()["steps"]["hf"]["connected"] is False
 
 

@@ -19,7 +19,7 @@ label{font-weight:600;font-size:13px}
 input{min-height:42px;padding:0 12px;border:1px solid var(--field);border-radius:8px;background:var(--card);color:var(--ink);font:inherit}
 input:focus{outline:2px solid var(--accent);outline-offset:1px}
 button{min-height:42px;border:none;border-radius:8px;background:var(--accent);color:var(--accent-ink);font:600 14px system-ui,sans-serif;cursor:pointer}
-#err{color:var(--bad);font-weight:500;min-height:1.5em}
+.err{color:var(--bad);font-weight:500;min-height:1.5em}
 .switch{font-size:13px;color:var(--muted)}
 a{color:var(--accent)}
 [hidden]{display:none!important}
@@ -33,21 +33,29 @@ a{color:var(--accent)}
   </a>
   <div>
     <h1 id="title">Sign in</h1>
-    <p id="lead">Run your ML jobs to completion on free GPU tiers.</p>
+    <p id="lead">Welcome back. Your jobs keep running while you are away.</p>
   </div>
-  <form method="post" id="form" action="/signin">
-    <label for="email">Email</label>
-    <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required autofocus>
-    <label for="password">Password <span class="hint" id="pwhint" hidden>(12 or more characters)</span></label>
+  <form method="post" id="signin-form" action="/signin">
+    <label for="login">Username or email</label>
+    <input id="login" name="login" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" required autofocus>
+    <label for="password">Password</label>
     <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required>
-    <div id="signup-only" style="display:flex;flex-direction:column;gap:12px" hidden>
-      <label for="confirm">Repeat the password</label>
-      <input id="confirm" name="confirm" type="password" autocomplete="new-password" maxlength="256">
-      <label for="invite" id="invite-label" hidden>Invite code</label>
-      <input id="invite" name="invite" type="text" autocomplete="off" maxlength="200" hidden>
-    </div>
-    <span id="err" role="alert"></span>
-    <button type="submit" id="submit">Sign in</button>
+    <span class="err" role="alert"></span>
+    <button type="submit">Sign in</button>
+  </form>
+  <form method="post" id="signup-form" action="/signup" hidden>
+    <label for="username">Username <span class="hint">(3 to 30 letters, digits, dots, dashes or underscores)</span></label>
+    <input id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="3" maxlength="30" pattern="[A-Za-z0-9][A-Za-z0-9._\-]{2,29}" required>
+    <label for="email">Email <span class="hint">(for job emails and password resets)</span></label>
+    <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>
+    <label for="new-password">Password <span class="hint">(12 or more characters)</span></label>
+    <input id="new-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
+    <label for="confirm">Type the password again</label>
+    <input id="confirm" name="confirm" type="password" autocomplete="new-password" maxlength="256" required>
+    <label for="invite" id="invite-label" hidden>Invite code</label>
+    <input id="invite" name="invite" type="text" autocomplete="off" maxlength="200" hidden>
+    <span class="err" role="alert"></span>
+    <button type="submit">Create account</button>
   </form>
   <span class="switch" id="switch"></span>
 </main>
@@ -55,36 +63,36 @@ a{color:var(--accent)}
 const signup = location.pathname === "/signup";
 const params = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
-if (params.get("email")) $("email").value = params.get("email");
+const form = signup ? $("signup-form") : $("signin-form");
+$("signin-form").hidden = signup;
+$("signup-form").hidden = !signup;
+for (const name of ["login", "email", "username"]) if (params.get(name) && $(name)) $(name).value = params.get(name);
 const messages = {
-  wrong: "Wrong email or password.",
-  busy: "Too many attempts. Try again later.",
-  mismatch: "The two passwords differ.",
+  wrong: "That username or email and password do not match.",
+  busy: "Too many attempts. Wait a few minutes and try again.",
+  mismatch: "The two passwords are not the same.",
   invite: "That invite code is not right.",
-  full: "This server has no room for more accounts.",
+  full: "This site has no room for more accounts right now.",
   email: "Enter a valid email address.",
+  username: "Choose a username of 3 to 30 letters, digits, dots, dashes or underscores.",
+  taken: "That username is taken. Choose another one.",
   password: "Use a password of 12 to 256 characters.",
   exists: "An account with this email already exists. Sign in instead.",
 };
+const err = form.querySelector(".err");
 const notes = {reset: "Your password is changed. Sign in with the new one."};
-if (notes[params.get("m")]) { $("err").textContent = notes[params.get("m")]; $("err").style.color = "inherit"; }
-if (messages[params.get("e")]) $("err").textContent = messages[params.get("e")];
+if (notes[params.get("m")]) { err.textContent = notes[params.get("m")]; err.style.color = "inherit"; }
+if (messages[params.get("e")]) err.textContent = messages[params.get("e")];
 const link = (text, href, label) => { const s = $("switch"); s.textContent = text + " "; const a = document.createElement("a"); a.href = href; a.textContent = label; s.append(a); };
 if (signup) {
   document.title = "GPU Relay · Create an account";
   $("title").textContent = "Create an account";
-  $("lead").textContent = "Free GPUs first. You connect your own Hugging Face and Kaggle accounts next.";
-  $("form").action = "/signup";
-  $("submit").textContent = "Create account";
-  $("password").autocomplete = "new-password";
-  $("password").minLength = 12;
-  $("confirm").required = true;
-  $("pwhint").hidden = false;
-  $("signup-only").hidden = false;
+  $("lead").textContent = "Next you connect your Hugging Face and Kaggle accounts, then you can submit jobs.";
+  $("username").focus();
   link("Already have an account?", "/signin", "Sign in");
   fetch("/api/me").then((r) => r.json()).then((me) => {
     if (me.signup.invite) { $("invite").hidden = false; $("invite-label").hidden = false; $("invite").required = true; }
-    if (!me.signup.open) { $("err").textContent = messages.full; $("submit").disabled = true; }
+    if (!me.signup.open) { err.textContent = messages.full; form.querySelector("button").disabled = true; }
   }).catch(() => {});
 } else {
   link("New here?", "/signup", "Create an account");
