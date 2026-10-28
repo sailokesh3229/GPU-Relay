@@ -33,6 +33,7 @@ from gpurelay.gateway.userenv import (
 )
 
 SETUP_TIMEOUT_S = 180.0
+VAULT_CHECK = "vault_check"
 WORKER = [sys.executable, "-m", "gpurelay.gateway.setup_worker"]
 
 # (argv, env, stdin, timeout) -> stdout
@@ -80,6 +81,34 @@ class UserSpaces:
     def saved(self, user_id: str) -> dict[str, float]:
         return self.store.secret_names(user_id)
 
+    def unreadable(self, user_id: str) -> list[str]:
+        """Tokens that are stored but cannot be opened (the vault key changed)."""
+        names = []
+        for name in SECRET_NAMES:
+            sealed = self.store.secret(user_id, name)
+            if sealed is None:
+                continue
+            try:
+                self.vault.open(user_id, name, sealed)
+            except VaultError:
+                names.append(name)
+        return names
+
+    def check_vault(self) -> bool:
+        """True if this server's vault key is the one the stored tokens were sealed with.
+
+        The first start stores a small value sealed with the key; every later start opens
+        it. False means ``GPURELAY_VAULT_KEY`` changed: every stored token is unreadable,
+        and users would have to add them again. Restoring the old key brings them back."""
+        sealed = self.store.meta(VAULT_CHECK)
+        if sealed is None:
+            self.store.put_meta(VAULT_CHECK, self.vault.seal("site", VAULT_CHECK, "ok"))
+            return True
+        try:
+            return self.vault.open("site", VAULT_CHECK, sealed) == "ok"
+        except VaultError:
+            return False
+
     def config(self, user_id: str) -> Config:
         raw = self.store.settings(user_id)
         return server_rules(Config.model_validate_json(raw) if raw else Config())
@@ -89,7 +118,8 @@ class UserSpaces:
 
     def ready(self, user_id: str) -> bool:
         """Storage connected and at least one way to get GPUs (Kaggle, Modal or Colab)."""
-        config, saved = self.config(user_id), self.saved(user_id)
+        config, unreadable = self.config(user_id), set(self.unreadable(user_id))
+        saved = {k: v for k, v in self.saved(user_id).items() if k not in unreadable}
         backends = config.backends
         storage = (
             HF in saved and config.storage.kind == "hf_hub" and bool(config.storage.hf_repo_id)

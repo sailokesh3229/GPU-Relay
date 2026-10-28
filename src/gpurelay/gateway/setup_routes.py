@@ -119,7 +119,9 @@ def setup_router(
             "colab": {"enabled": colab.enabled, "first": colab.first,
                       "wait_min": colab.wait_s // 60},
         }  # fmt: skip
-        return {"steps": steps, "ready": spaces.ready(uid), "accelerators": ACCELERATORS}
+        unreadable = spaces.unreadable(uid)
+        return {"steps": steps, "ready": spaces.ready(uid), "accelerators": ACCELERATORS,
+                "unreadable": unreadable}  # fmt: skip
 
     @router.post("/api/setup/hf")
     async def setup_hf(form: HfForm, request: Request) -> Any:

@@ -52,6 +52,11 @@ SCHEMA = (
         config TEXT NOT NULL,
         updated_at DOUBLE PRECISION NOT NULL
     )""",
+    # Small facts about the site itself (e.g. the vault check, gateway/space.py).
+    """CREATE TABLE IF NOT EXISTS meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    )""",
     # One-time links (email verification, password reset): only a hash of the token.
     """CREATE TABLE IF NOT EXISTS links (
         token_hash TEXT PRIMARY KEY,
@@ -361,3 +366,13 @@ class UserStore:
             return None
         self._run("DELETE FROM links WHERE token_hash = ?", (token_hash,))
         return str(row[0]) if float(row[1]) >= self.clock() else None
+
+    # ---------------------------------------------------------------- site facts
+
+    def meta(self, key: str) -> str | None:
+        row = self._one("SELECT value FROM meta WHERE key = ?", (key,))
+        return str(row[0]) if row else None
+
+    def put_meta(self, key: str, value: str) -> None:
+        self._run("DELETE FROM meta WHERE key = ?", (key,))
+        self._run("INSERT INTO meta (key, value) VALUES (?, ?)", (key, value))

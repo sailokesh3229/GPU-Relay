@@ -72,6 +72,10 @@ def render(analysis: Analysis, console: Console) -> None:
             info["hook_supported"]
         ]
         console.print(f"framework [bold]{fw}[/bold]: {installed} ({verdict})")
+    if analysis.errors:
+        console.print("[bold red]Will fail as written[/bold red]")
+        for error in analysis.errors:
+            console.print(f"  [red]x[/red] {_where(error.cell, error.line)}{error.message}")
     if analysis.risks:
         console.print("[bold]Risks[/bold]")
         for risk in analysis.risks:

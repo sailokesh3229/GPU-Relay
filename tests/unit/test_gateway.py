@@ -147,7 +147,7 @@ def test_pages_and_headers(tmp_path: Path) -> None:
     assert home.status_code == 200 and "Kaggle" in home.text and "write" in home.text
     assert "frame-ancestors 'none'" in home.headers["content-security-policy"]
     assert client.get("/signup").status_code == 200 and client.get("/signin").status_code == 200
-    assert client.get("/healthz").json() == {"ok": True}
+    assert client.get("/healthz").json() == {"ok": True, "vault": "ok"}
     assert client.post("/signout-everywhere").status_code == 303  # not signed in: to /signin
     assert client.get("/api/anything").status_code == 401
 

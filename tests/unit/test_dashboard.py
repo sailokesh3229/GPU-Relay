@@ -112,3 +112,34 @@ def test_dns_rebinding_is_refused(tmp_path: Path) -> None:
     assert client.get("/", headers={"host": "attacker.test"}).status_code == 421
     for host in ("127.0.0.1:8765", "localhost:8765", "[::1]:8765", "localhost"):
         assert client.get("/api/overview", headers={"host": host}).status_code == 200, host
+
+
+def test_notebook_results_show_text_figures_and_errors(tmp_path: Path) -> None:
+    import nbformat
+
+    from gpurelay.dashboard.app import notebook_results
+
+    nb = nbformat.v4.new_notebook()
+    nb.cells = [
+        nbformat.v4.new_markdown_cell("# title"),
+        nbformat.v4.new_code_cell("print('loss')", outputs=[
+            nbformat.v4.new_output("stream", name="stdout", text="Epoch 1\nloss 0.5\n")]),
+        nbformat.v4.new_code_cell("plt.show()", outputs=[
+            nbformat.v4.new_output("display_data", data={"image/png": "iVBORw0K\nGgo=",
+                                                         "text/plain": "<Figure>"})]),
+        nbformat.v4.new_code_cell("1/0", outputs=[
+            nbformat.v4.new_output("error", ename="ZeroDivisionError", evalue="division by zero",
+                                   traceback=["Traceback", "ZeroDivisionError: x"])]),
+        nbformat.v4.new_code_cell("x = 1"),
+    ]  # fmt: skip
+    path = tmp_path / "output.ipynb"
+    nbformat.write(nb, str(path))
+    cells = notebook_results(path)
+    assert [c["source"] for c in cells] == ["print('loss')", "plt.show()", "1/0", "x = 1"]
+    assert cells[0]["outputs"] == [{"kind": "text", "text": "Epoch 1\nloss 0.5\n"}]
+    assert cells[1]["outputs"] == [{"kind": "image", "png": "iVBORw0KGgo="}]
+    assert (
+        cells[2]["outputs"][0]["kind"] == "error"
+        and "ZeroDivisionError" in cells[2]["outputs"][0]["text"]
+    )
+    assert cells[3]["outputs"] == []

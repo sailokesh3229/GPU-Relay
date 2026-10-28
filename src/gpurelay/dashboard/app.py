@@ -67,6 +67,41 @@ def _iso(value: datetime | float | None) -> str | None:
     return value.astimezone(timezone.utc).isoformat()
 
 
+RESULT_TEXT_MAX = 20_000  # characters of one output shown on the page (the file has it all)
+RESULT_IMAGE_MAX = 3 * 1024 * 1024  # base64 characters of one image shown on the page
+
+
+def notebook_results(path: Path) -> list[dict[str, Any]]:
+    """The code cells of an output notebook with their outputs, ready for the job page."""
+    import nbformat
+
+    def clip(text: str) -> str:
+        return text if len(text) <= RESULT_TEXT_MAX else text[:RESULT_TEXT_MAX] + "\n… (cut)"
+
+    cells = []
+    for cell in nbformat.read(str(path), as_version=4).cells:
+        if cell.cell_type != "code":
+            continue
+        outputs: list[dict[str, str]] = []
+        for out in cell.get("outputs", []):
+            kind = out.get("output_type")
+            if kind == "stream":
+                outputs.append({"kind": "text", "text": clip(str(out.get("text", "")))})
+            elif kind == "error":
+                trace = "\n".join(out.get("traceback", []))
+                trace = trace or f"{out.get('ename')}: {out.get('evalue')}"
+                outputs.append({"kind": "error", "text": clip(trace)})
+            elif kind in ("execute_result", "display_data"):
+                data = out.get("data", {})
+                png = data.get("image/png")
+                if isinstance(png, str) and len(png) <= RESULT_IMAGE_MAX:
+                    outputs.append({"kind": "image", "png": png.replace("\n", "")})
+                elif "text/plain" in data:
+                    outputs.append({"kind": "text", "text": clip(str(data["text/plain"]))})
+        cells.append({"source": clip(str(cell.source)), "outputs": outputs})
+    return cells
+
+
 def _job_json(row: JobRow) -> dict[str, Any]:
     job = row.job
     return {
@@ -375,6 +410,27 @@ def create_app(
             raise HTTPException(status_code=502, detail=f"download failed: {exc}") from exc
         return FileResponse(target, filename=target.name,
                             background=BackgroundTask(shutil.rmtree, tmp, True))  # fmt: skip
+
+    @app.get("/api/jobs/{job_id}/results")
+    def job_results(job_id: str) -> dict[str, Any]:
+        """What a completed job produced, to show on its page: the figures, and for a
+        notebook every cell's outputs (text, images, errors) as in Colab."""
+        listing = job_files(job_id)
+        if not listing["completed"]:
+            return {"completed": False}
+        files = listing["files"]
+        figures = [f for f in files if f.startswith("figures/") and f.endswith(".png")]
+        cells: list[dict[str, Any]] | None = None
+        if "output.ipynb" in files:
+            with tempfile.TemporaryDirectory(prefix="gpurelay-results-") as tmp:
+                target = Path(tmp) / "output.ipynb"
+                try:
+                    ctx.storage.get_file(f"{final_prefix(find(job_id).id)}/output.ipynb", target)
+                    cells = notebook_results(target)
+                except Exception as exc:
+                    raise HTTPException(502, detail=f"output notebook unavailable: {exc}") from exc
+        others = [f for f in files if f not in figures and f not in ("output.ipynb",)]
+        return {"completed": True, "figures": figures, "cells": cells, "files": others}
 
     def _analysis(saved: Any) -> Any:
         from gpurelay.analyzer import analyze_path

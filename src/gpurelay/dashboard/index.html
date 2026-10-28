@@ -29,6 +29,10 @@
 body{margin:0;background:var(--bg);color:var(--ink);font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:var(--accent)}a:hover{color:var(--accent-dark)}
 button,input,select,textarea{font:inherit;color:inherit}
+.result-cell{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
+.result-img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
+.result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.result-err{color:var(--bad, #B42318)}
 .app{min-height:100vh;display:flex;flex-wrap:wrap}
 nav.side{flex:1 1 220px;max-width:248px;padding:20px 14px;background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:22px}
 .brand{display:flex;align-items:center;gap:10px;padding:0 8px;font-weight:700;font-size:16px;letter-spacing:-.01em}
@@ -177,7 +181,7 @@ ol.howto{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
 <script>
 "use strict";
 const ACT = {"X-GPURelay-Action": "1"};
-let overview = null, me = {role: "owner", login: false}, timer = null, filter = "all", outTab = "log";
+let overview = null, me = {role: "owner", login: false}, timer = null, filter = "all", outTab = null;
 let submitState = null;
 
 // ---------------------------------------------------------------- helpers (text only, no HTML parsing)
@@ -419,8 +423,9 @@ async function jobView(id) {
       el("td", {text: `${s.start_checkpoint ?? "—"} → ${s.end_checkpoint ?? (s.state === "running" ? "…" : "—")}`}),
       el("td", {text: ENDINGS[s.outcome] || ENDINGS[s.state] || s.outcome || s.state}))) :
       el("tr", {}, el("td", {colspan: "5", class: "muted", text: "No sessions yet."})))));
-  const outTabs = el("div", {class: "tabs"}, [["log", "Log"], ["files", "Files"], ["events", "Events"]].map(([id, label]) =>
-    el("button", {type: "button", "aria-pressed": String(outTab === id), onclick: () => { outTab = id; show(); }}, label)));
+  const tab = outTab || (job.state === "completed" ? "results" : "log");  // finished: show what it produced
+  const outTabs = el("div", {class: "tabs"}, [["results", "Results"], ["log", "Log"], ["files", "Files"], ["events", "Events"]].map(([id, label]) =>
+    el("button", {type: "button", "aria-pressed": String(tab === id), onclick: () => { outTab = id; show(); }}, label)));
   const out = el("div", {id: "out"});
   render(
     el("a", {class: "back", href: "#/"}, "← All jobs"),
@@ -441,8 +446,9 @@ async function jobView(id) {
     el("section", {class: "card", "aria-labelledby": "out-h"},
       el("div", {style: "display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"}, el("h2", {id: "out-h", text: "Output"}), outTabs),
       out));
-  if (outTab === "log") loadLog(job, out);
-  else if (outTab === "files") loadFiles(job, out);
+  if (tab === "results") loadResults(job, out);
+  else if (tab === "log") loadLog(job, out);
+  else if (tab === "files") loadFiles(job, out);
   else out.replaceChildren(data.events.length ? el("div", {class: "scroll"}, el("table", {}, el("tbody", {}, data.events.map((e) =>
     el("tr", {}, el("td", {class: "muted", style: "white-space:nowrap", text: when(e.at)}), el("td", {text: e.kind.replaceAll("_", " ")}), el("td", {text: e.message})))))) :
     el("p", {class: "muted", text: "No events yet."}));
@@ -488,6 +494,35 @@ async function loadLog(job, out) {
     pre.textContent = data.text || "No output yet. It appears here after the first checkpoint.";
     pre.scrollTop = pre.scrollHeight;
   } catch (e) { pre.textContent = e.message; }
+}
+async function loadResults(job, out) {
+  out.replaceChildren(el("p", {class: "muted", text: "Loading…"}));
+  if (job.state.startsWith("failed")) {
+    out.replaceChildren(el("p", {class: "msg err", text: `The job stopped with an error: ${job.message || "see the Log tab"}. The Log tab shows everything it printed up to the error, with the full traceback.`}));
+    return;
+  }
+  try {
+    const data = await api(`api/jobs/${encodeURIComponent(job.id)}/results`);
+    if (!data.completed) { out.replaceChildren(el("p", {class: "muted", text: "Results appear here when the job completes. Until then, the Log tab shows what it prints as it runs."})); return; }
+    const fileUrl = (f) => `api/jobs/${encodeURIComponent(job.id)}/files/${f.split("/").map(encodeURIComponent).join("/")}`;
+    const parts = [];
+    if (data.cells) {
+      data.cells.forEach((c, n) => {
+        const outs = c.outputs.map((o) => o.kind === "image"
+          ? el("img", {class: "result-img", src: `data:image/png;base64,${o.png}`, alt: `Figure from cell ${n + 1}`})
+          : el("pre", {class: o.kind === "error" ? "log result-err" : "log", text: o.text}));
+        parts.push(el("div", {class: "result-cell"},
+          el("details", {}, el("summary", {class: "small muted", text: `Cell ${n + 1}`}), el("pre", {class: "log", text: c.source})),
+          outs.length ? outs : el("p", {class: "small muted", text: "No output."})));
+      });
+    } else if (data.figures.length) {
+      parts.push(el("div", {class: "result-grid"}, data.figures.map((f) => el("img", {class: "result-img", src: fileUrl(f), alt: f}))));
+    } else {
+      parts.push(el("p", {class: "muted", text: "The job printed its results to the Log tab and saved no figures."}));
+    }
+    if (data.files.length) parts.push(el("p", {class: "small muted", text: `Files to download (Files tab): ${data.files.join(", ")}`}));
+    out.replaceChildren(...parts);
+  } catch (e) { out.replaceChildren(el("p", {class: "msg err", text: e.message})); }
 }
 async function loadFiles(job, out) {
   out.replaceChildren(el("p", {class: "muted", text: "Loading…"}));
@@ -568,6 +603,9 @@ function analysisCard(a) {
         el("td", {}, el("span", {class: `lvl lvl-${b.level}`, text: b.level === "RESTART_ONLY" ? "Restart" : b.level[0] + b.level.slice(1).toLowerCase()})),
         el("td", {}, [b.loops.map((l) => l.header).join("; ") || b.statement, b.covered_by.length ? ` · ${b.covered_by.map((c) => c.replace(/^[A-Z] \((.*)\)$/, "$1")).join(", ")}` : "", ...b.notes.map((n) => ` · ${n}`)].join("")))))))
       : el("p", {class: "muted", text: `${a.simple_statements} short statements: each one is a safe point.`}),
+    (a.errors || []).length ? el("div", {class: "banner bad", role: "alert"}, el("div", {style: "display:flex;flex-direction:column;gap:6px"},
+      el("strong", {text: "This code will stop with an error as written. Fix it before submitting:"}),
+      a.errors.map((f) => el("span", {class: "small", text: `${f.cell ? `Cell ${f.cell}, ` : ""}${f.line ? `line ${f.line}: ` : ""}${f.message}`})))) : null,
     notes.length ? el("div", {style: "display:flex;flex-direction:column;gap:6px"}, el("strong", {text: "Notes (not applied)"}),
       notes.map(([kind, f]) => el("span", {class: "small", text: `${kind}${f.line ? ` (line ${f.line})` : ""}: ${f.message}`}))) : null);
 }
@@ -898,7 +936,7 @@ async function tick() {
   }
   await show();
 }
-window.addEventListener("hashchange", () => { if (route().name !== "job") outTab = "log"; show(); view().focus({preventScroll: true}); });
+window.addEventListener("hashchange", () => { if (route().name !== "job") outTab = null; show(); view().focus({preventScroll: true}); });
 (async () => {
   try {
     me = await api("api/me");

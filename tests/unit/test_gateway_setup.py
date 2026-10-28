@@ -206,3 +206,34 @@ def test_the_real_worker_process_answers_in_json(tmp_path: Path) -> None:
     out = run_process(WORKER, env, json.dumps({"step": "hf"}), 120)
     assert json.loads(out.strip().splitlines()[-1]) == {
         "error": "a Hugging Face token starts with hf_"}  # fmt: skip
+
+
+def test_a_changed_vault_key_is_noticed_and_shown(tmp_path: Path) -> None:
+    store = UserStore(f"sqlite:///{tmp_path / 'users.db'}")
+    first = UserSpaces(store, Vault.from_env({"GPURELAY_VAULT_KEY": new_key()}), tmp_path / "u")
+    assert first.check_vault() is True and first.check_vault() is True  # stored, then opened
+    user = store.create("ada@example.com", PW, "ada")
+    first.put_secrets(user.id, {"hf_token": HF_TOKEN})
+    config = first.config(user.id)
+    config.storage.hf_repo_id = "ada/gpurelay-store"
+    config.backends.colab_manual.enabled = True
+    first.save_config(user.id, config)
+    assert first.ready(user.id) and first.unreadable(user.id) == []
+    other = UserSpaces(store, Vault.from_env({"GPURELAY_VAULT_KEY": new_key()}), tmp_path / "u")
+    assert other.check_vault() is False  # a different key: noticed at start
+    assert other.unreadable(user.id) == ["hf_token"] and not other.ready(user.id)
+    settings = GatewaySettings(store=store, signer=SessionSigner(b"k" * 32), spaces=other,
+                               secure_cookie=False)  # fmt: skip
+    client = TestClient(create_gateway(settings), follow_redirects=False)
+    assert client.get("/healthz").json() == {"ok": True, "vault": "key_changed"}
+    client.post("/signin", data={"login": "ada", "password": PW})
+    assert client.get("/api/setup").json()["unreadable"] == ["hf_token"]
+    same = UserSpaces(store, first.vault, tmp_path / "u")
+    good = TestClient(
+        create_gateway(
+            GatewaySettings(
+                store=store, signer=SessionSigner(b"k" * 32), spaces=same, secure_cookie=False
+            )
+        )
+    )
+    assert good.get("/healthz").json()["vault"] == "ok"

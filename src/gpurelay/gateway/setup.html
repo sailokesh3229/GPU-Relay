@@ -165,6 +165,9 @@ function render(s) {
     ? "All set. Your GPU Relay is ready: open it to submit a job."
     : st.hf.connected ? "Step 1 is done. Now connect at least one GPU platform: Kaggle (step 2), Modal (step 3) or Colab (step 4)."
     : "Start with step 1: connect Hugging Face storage.";
+  if (s.unreadable && s.unreadable.length) {
+    $("#ready").textContent = "Some of your saved tokens can no longer be read by this server (its encryption key changed). Paste them again below. Your jobs and settings are not affected.";
+  }
   $("#open").setAttribute("aria-disabled", s.ready ? "false" : "true");
   $("#go").classList.toggle("done", s.ready);
 }

@@ -318,9 +318,15 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
             },
         }
 
+    vault_ok = settings.spaces.check_vault() if settings.spaces is not None else True
+    if not vault_ok:
+        log.error("GPURELAY_VAULT_KEY is not the key the stored tokens were sealed with: they "
+                  "cannot be read. Put the previous key back to restore them.")  # fmt: skip
+
     @app.get("/healthz")
-    def healthz() -> dict[str, bool]:
-        return {"ok": True}
+    def healthz() -> dict[str, Any]:
+        # "vault": whether stored tokens can be read (checked from outside after a deploy).
+        return {"ok": True, "vault": "ok" if vault_ok else "key_changed"}
 
     app.include_router(account_router(
         store, settings.mailer, _page, with_session,

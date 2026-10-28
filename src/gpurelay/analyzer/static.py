@@ -87,6 +87,8 @@ class Analysis:
     risks: list[Finding]
     suggestions: list[Finding]
     environment: dict[str, Any]
+    # Problems that stop the job as written (analyzer/portability.py), shown before risks.
+    errors: list[Finding] = field(default_factory=list)
     format: int = ANALYSIS_FORMAT_VERSION
 
     def to_json(self) -> dict[str, Any]:
@@ -449,6 +451,12 @@ def _environment(plan: ScriptPlan, script: Path, requirements: Path | None) -> d
 # ====================================================================== entry point
 
 
+def _will_fail(trees: list[ast.Module], *, cells: bool) -> list[Finding]:
+    from gpurelay.analyzer.portability import will_fail
+
+    return will_fail(trees, cells=cells)
+
+
 def analyze_script(
     path: Path, *, requirements: Path | None = None, options: InstrumentOptions | None = None
 ) -> Analysis:
@@ -470,6 +478,7 @@ def analyze_script(
         risks=_risks(tree, text, plan),
         suggestions=_suggestions(tree, text, plan),
         environment=_environment(plan, path, requirements),
+        errors=_will_fail([tree], cells=False),
     )
 
 
@@ -507,6 +516,7 @@ def analyze_notebook(
         risks=risks,
         suggestions=suggestions,
         environment=_environment(plan, path, requirements),
+        errors=_will_fail(trees, cells=True),
     )
 
 
