@@ -12,6 +12,10 @@ APP_NAME: Final = "gpurelay"
 
 # ---------------------------------------------------------------- local home / config
 ENV_HOME: Final = "GPURELAY_HOME"
+# Opens the launcher notebook in Colab (it is in this project's public repository): it reads
+# the user's Hugging Face token from their Colab secret, finds the job waiting for Colab in
+# their storage repo, and runs its resume notebook when they press Run all.
+COLAB_LAUNCHER_URL: Final = "https://colab.research.google.com/github/sailokesh3229/GPU-Relay/blob/main/colab/open_job.ipynb"
 DEFAULT_HOME_DIRNAME: Final = ".gpurelay"
 CONFIG_FILENAME: Final = "config.toml"
 STATE_DB_FILENAME: Final = "state.db"

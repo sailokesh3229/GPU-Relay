@@ -119,7 +119,8 @@ a.button[aria-disabled="true"]{background:var(--line);color:var(--muted);pointer
   <section class="card" id="colab">
     <div class="head"><h2>4. Google Colab <span class="muted">(optional, you press Run all)</span></h2><span class="pill" id="colab-state">Off</span></div>
     <ul><li>In Colab, click the key icon (Secrets) on the left. Add a secret named <code>GPURELAY_HF_TOKEN</code> whose value is your Hugging Face token, and turn on notebook access.</li>
-      <li>When a job needs Colab, you get a notebook to open. Open it in Colab and press Run all. GPU Relay never controls Colab itself.</li></ul>
+      <li>When a job needs Colab, your GPU Relay shows an <strong>Open in Colab</strong> button (and a browser notification, if you allow them). Click it, choose a GPU, and press Run all. GPU Relay never controls Colab itself.</li>
+      <li>If you named your storage repo something other than <code>gpurelay-store</code>, also add a Colab secret <code>GPURELAY_REPO</code> with its full name.</li></ul>
     <form data-step="colab">
       <label class="check"><input type="checkbox" name="enabled"> Use Colab</label>
       <label class="check"><input type="checkbox" name="first"> Ask for Colab before Kaggle and Modal</label>

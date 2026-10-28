@@ -29,6 +29,10 @@
 body{margin:0;background:var(--bg);color:var(--ink);font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 a{color:var(--accent)}a:hover{color:var(--accent-dark)}
 button,input,select,textarea{font:inherit;color:inherit}
+.code-box{overflow-x:auto;border:1px solid var(--line);border-radius:8px;font:12.5px/1.6 ui-monospace,Consolas,monospace;padding:6px 0}
+.code-line{display:flex;gap:12px;padding:0 12px;white-space:pre}
+.code-line.bad{background:rgba(180,35,24,.12);font-weight:700}
+.code-no{min-width:2.5em;text-align:right;color:var(--muted);user-select:none}
 .result-cell{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
 .result-img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
 .result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
@@ -272,8 +276,33 @@ function progressBar(job) {
 }
 
 // ---------------------------------------------------------------- shell
+// Browser notifications: when a job starts waiting for Colab, a notification that opens
+// the Colab launcher when clicked (while a GPU Relay page is open in the browser).
+const notified = new Set();
+let notifyPrimed = false;
+function notifyButton() {
+  if (!("Notification" in window) || Notification.permission !== "default") return null;
+  return el("button", {class: "btn", type: "button", onclick: async (ev) => {
+    ev.target.disabled = true;
+    try { await Notification.requestPermission(); } catch (e) { /* older Safari: callback form */ }
+    show();
+  }}, "Notify me in this browser");
+}
+function notifyColab(actions) {
+  const fresh = actions.filter((a) => !notified.has(a.job_id));
+  actions.forEach((a) => notified.add(a.job_id));
+  if (!notifyPrimed) { notifyPrimed = true; return; }  // the first look only learns what is waiting
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  for (const a of fresh) {
+    try {
+      const n = new Notification(`${a.name} needs you on Colab`, {body: "Click to open it in Colab, then press Run all.", tag: `colab-${a.job_id}`});
+      n.onclick = () => { window.open(a.open_url, "_blank", "noopener"); n.close(); };
+    } catch (e) { /* notifications not allowed here */ }
+  }
+}
 async function refreshShell() {
   overview = await api("api/overview");
+  notifyColab(overview.colab_actions || []);
   const active = overview.jobs.filter((j) => !j.terminal).length;
   document.getElementById("nav-count").textContent = String(active);
   const on = overview.controller_running;
@@ -328,8 +357,11 @@ function jobsView() {
     : "No jobs yet";
   const banners = overview.colab_actions.map((a) => el("section", {class: "banner", "aria-label": "Needs your action"},
     el("div", {}, el("strong", {text: `${a.name} is waiting for you on Colab`}),
-      el("span", {text: "Save the resume notebook, open colab.research.google.com, choose File > Upload notebook, then Runtime > Run all. It continues from the last checkpoint."})),
-    el("a", {class: "btn", href: `api/jobs/${encodeURIComponent(a.job_id)}/colab-notebook`, download: ""}, "Save notebook")));
+      el("span", {text: "Open in Colab, choose a GPU (Runtime > Change runtime type), then Runtime > Run all. It continues from the last checkpoint. (Once per Colab account: add the secret GPURELAY_HF_TOKEN with your Hugging Face token.)"})),
+    el("div", {style: "display:flex;gap:8px;flex-wrap:wrap"},
+      el("a", {class: "btn primary", href: a.open_url, target: "_blank", rel: "noopener"}, "Open in Colab"),
+      el("a", {class: "btn", href: `api/jobs/${encodeURIComponent(a.job_id)}/colab-notebook`, download: ""}, "Save notebook"),
+      notifyButton())));
   const tabs = el("div", {class: "tabs", role: "tablist", "aria-label": "Filter jobs"},
     [["all", "All"], ["active", "Active"], ["needs", "Needs you"], ["done", "Finished"]].map(([id, label]) =>
       el("button", {type: "button", role: "tab", "aria-selected": String(filter === id),
@@ -435,6 +467,7 @@ async function jobView(id) {
         el("p", {class: "muted"}, el("span", {class: "mono", text: job.id}), ` · ${job.entry} · submitted ${when(job.submitted_at)}${job.prefer_backend ? ` · runs on ${backendLabel(job.prefer_backend)}` : ""}`)),
       actions),
     el("p", {class: "msg", id: "act-msg", role: "status"}),
+    job.state === "failed_user" ? el("div", {id: "err-where"}) : null,
     job.message ? el("div", {class: `banner ${job.state.startsWith("failed") ? "bad" : "info"}`}, el("div", {}, el("span", {
       text: job.state === "completed" ? "Finished. Download the outputs from the Files tab below." : job.message}))) : null,
     data.fit && !job.terminal ? el("p", {class: "muted", text: data.fit}) : null,
@@ -446,6 +479,7 @@ async function jobView(id) {
     el("section", {class: "card", "aria-labelledby": "out-h"},
       el("div", {style: "display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"}, el("h2", {id: "out-h", text: "Output"}), outTabs),
       out));
+  if (job.state === "failed_user") loadErrorWhere(job);
   if (tab === "results") loadResults(job, out);
   else if (tab === "log") loadLog(job, out);
   else if (tab === "files") loadFiles(job, out);
@@ -494,6 +528,23 @@ async function loadLog(job, out) {
     pre.textContent = data.text || "No output yet. It appears here after the first checkpoint.";
     pre.scrollTop = pre.scrollHeight;
   } catch (e) { pre.textContent = e.message; }
+}
+async function loadErrorWhere(job) {
+  const box = document.getElementById("err-where");
+  if (!box) return;
+  try {
+    const e = await api(`api/jobs/${encodeURIComponent(job.id)}/error`);
+    if (!e.found) return;
+    const rows = e.lines.map((text, k) => {
+      const n = e.first + k, bad = n === e.line;
+      return el("div", {class: bad ? "code-line bad" : "code-line"},
+        el("span", {class: "code-no", text: String(n)}), el("span", {class: "code-text", text: bad ? text + "   ← the error is here" : text || " "}));
+    });
+    box.replaceChildren(el("section", {class: "card", "aria-labelledby": "err-h"},
+      el("h2", {id: "err-h", text: e.cell ? `Where it failed: cell ${e.cell}, line ${e.line}` : `Where it failed: line ${e.line} of ${e.entry}`}),
+      el("p", {class: "small muted", text: "Fix this line in your code and submit the job again. The Log tab has the full traceback."}),
+      el("div", {class: "code-box", role: "region", "aria-label": "Code around the error"}, rows)));
+  } catch (err) { /* the banner and the Log tab still show the error */ }
 }
 async function loadResults(job, out) {
   out.replaceChildren(el("p", {class: "muted", text: "Loading…"}));

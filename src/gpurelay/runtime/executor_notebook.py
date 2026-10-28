@@ -24,6 +24,7 @@ from typing import Any
 import nbformat
 
 from gpurelay.models import ExitCode
+from gpurelay.runtime.errorloc import deepest, located
 from gpurelay.runtime.executor_script import main_module, run_statements
 from gpurelay.runtime.instrument import (
     RELAY_NAME,
@@ -172,11 +173,22 @@ def _make_shell(module: Any, recorder: OutputRecorder, ipython_dir: Path) -> Any
     return RelayShell.instance(config=config, user_module=module)
 
 
+def job_python_first_on_path() -> None:
+    """``!pip`` and ``!python`` in a cell run whatever comes first on PATH. On Kaggle and Colab
+    that is the kernel's own Python; elsewhere (a virtual environment, a local run) it can be
+    another installation, so packages would go to the wrong Python. Put this one first."""
+    here = str(Path(sys.executable).parent)
+    parts = os.environ.get("PATH", "").split(os.pathsep)
+    if parts[:1] != [here]:
+        os.environ["PATH"] = os.pathsep.join([here, *(p for p in parts if p != here)])
+
+
 def run_notebook(path: Path, session: RelaySession) -> tuple[ExitCode, str]:
     """Run the notebook under ``session``; return (exit code, status message)."""
     path = Path(path).resolve()
     notebook = nbformat.read(path, as_version=4)
     sources = [cell.source for cell in notebook.cells if cell.cell_type == "code"]
+    job_python_first_on_path()
     recorder = OutputRecorder(session)
     pending: list[BaseException] = []
 
@@ -201,10 +213,17 @@ def run_notebook(path: Path, session: RelaySession) -> tuple[ExitCode, str]:
         session.runtime_extras.append(recorder.runtime_extra)
         session.on_restore.append(recorder.restore_partial)
 
+        runs: dict[int, int] = {}  # IPython execution number -> code cell index
+
+        def cell_of(filename: str) -> int | None:
+            number = shell.compile._filename_map.get(filename)
+            return runs.get(number) if number is not None else None
+
         def execute(stmt: StatementInfo) -> None:
             assert stmt.source is not None
             recorder.begin(stmt.index, live=not session.tracker.passthrough)
             transformer.cell = stmt.index
+            runs[shell.execution_count] = stmt.index
             try:
                 result = shell.run_cell(stmt.source, store_history=True)
                 if pending:
@@ -212,7 +231,15 @@ def run_notebook(path: Path, session: RelaySession) -> tuple[ExitCode, str]:
                 session.capture.capture_open_figures()  # like the inline backend
                 if not result.success:
                     error = result.error_before_exec or result.error_in_exec
-                    raise CellError(f"cell {stmt.index}: {type(error).__name__}: {error}")
+                    text = f"{type(error).__name__}: {error}"
+                    # The failing line of the user's code (deepest frame in any cell).
+                    where = deepest(error.__traceback__, cell_of)
+                    cell, line = (where[0], where[1]) if where else (stmt.index, None)
+                    if line is None and isinstance(error, SyntaxError) and error.lineno:
+                        line = error.lineno
+                    if line is None:
+                        raise CellError(f"cell {cell + 1}: {text}")
+                    raise CellError(located(text, line, cell + 1))
             finally:
                 transformer.cell = None
                 recorder.end()

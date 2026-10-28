@@ -24,6 +24,7 @@ from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from gpurelay import __version__
+from gpurelay.constants import COLAB_LAUNCHER_URL
 from gpurelay.controller.estimator import fit_message
 from gpurelay.controller.lock import controller_running
 from gpurelay.controller.service import (
@@ -69,6 +70,32 @@ def _iso(value: datetime | float | None) -> str | None:
 
 RESULT_TEXT_MAX = 20_000  # characters of one output shown on the page (the file has it all)
 RESULT_IMAGE_MAX = 3 * 1024 * 1024  # base64 characters of one image shown on the page
+
+
+ERROR_CONTEXT = 6  # lines shown before and after the failing line
+
+
+def error_snippet(source: bytes, entry: str, cell: int | None, line: int) -> dict[str, Any] | None:
+    """The code around a failing line: ``cell`` counts code cells from 1 (notebooks)."""
+    text = source.decode("utf-8", "replace")
+    if entry.endswith(".ipynb"):
+        import nbformat
+
+        code = [c.source for c in nbformat.reads(text, 4).cells if c.cell_type == "code"]
+        if cell is None or not 1 <= cell <= len(code):
+            return None
+        text = code[cell - 1]
+    lines = text.splitlines()
+    if not 1 <= line <= len(lines):
+        return None
+    first = max(1, line - ERROR_CONTEXT)
+    last = min(len(lines), line + ERROR_CONTEXT)
+    return {
+        "cell": cell,
+        "line": line,
+        "first": first,
+        "lines": lines[first - 1 : last],
+    }
 
 
 def notebook_results(path: Path) -> list[dict[str, Any]]:
@@ -332,7 +359,12 @@ def create_app(
                 for b in backend_rows(controller, now)
             ],
             "colab_actions": [
-                {"job_id": r.job.id, "name": r.job.name, "command": f"gpurelay colab {r.job.id}"}
+                {
+                    "job_id": r.job.id,
+                    "name": r.job.name,
+                    "command": f"gpurelay colab {r.job.id}",
+                    "open_url": COLAB_LAUNCHER_URL,
+                }
                 for r in rows
                 if r.job.state is JobState.AWAITING_USER
             ],
@@ -410,6 +442,24 @@ def create_app(
             raise HTTPException(status_code=502, detail=f"download failed: {exc}") from exc
         return FileResponse(target, filename=target.name,
                             background=BackgroundTask(shutil.rmtree, tmp, True))  # fmt: skip
+
+    @app.get("/api/jobs/{job_id}/error")
+    def job_error(job_id: str) -> dict[str, Any]:
+        """Where the job's code failed, with the code around that line (job page)."""
+        from gpurelay.bundle.packager import read_bundle_file, read_manifest
+        from gpurelay.runtime.errorloc import parse_location
+
+        job = find(job_id)
+        where = parse_location(job.message) if job.state is JobState.FAILED_USER else None
+        if where is None:
+            return {"found": False}
+        try:
+            manifest = read_manifest(ctx.storage, job.id)
+            source = read_bundle_file(ctx.storage, job.id, manifest.entry)
+        except Exception:
+            return {"found": False}
+        snippet = error_snippet(source, manifest.entry, where[0], where[1])
+        return {"found": snippet is not None, "entry": manifest.entry, **(snippet or {})}
 
     @app.get("/api/jobs/{job_id}/results")
     def job_results(job_id: str) -> dict[str, Any]:

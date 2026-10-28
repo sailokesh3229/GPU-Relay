@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from gpurelay.constants import COLAB_LAUNCHER_URL
+
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
@@ -51,7 +53,12 @@ def test_overview_jobs_budgets_and_colab_banner(tmp_path: Path) -> None:
     h2.controller.tick()
     data = _client(tmp_path / "manual", h2).get("/api/overview").json()
     assert data["colab_actions"] == [
-        {"job_id": waiting.id, "name": "needs-colab", "command": f"gpurelay colab {waiting.id}"}
+        {
+            "job_id": waiting.id,
+            "name": "needs-colab",
+            "command": f"gpurelay colab {waiting.id}",
+            "open_url": COLAB_LAUNCHER_URL,
+        }  # one click opens the launcher in Colab
     ]
 
 
@@ -143,3 +150,61 @@ def test_notebook_results_show_text_figures_and_errors(tmp_path: Path) -> None:
         and "ZeroDivisionError" in cells[2]["outputs"][0]["text"]
     )
     assert cells[3]["outputs"] == []
+
+
+def test_error_snippet_marks_the_failing_line() -> None:
+    import nbformat
+
+    from gpurelay.dashboard.app import error_snippet
+    from gpurelay.runtime.errorloc import located, parse_location
+
+    script = "\n".join(f"line{n}" for n in range(1, 21)).encode()
+    snip = error_snippet(script, "train.py", None, 10)
+    assert snip == {"cell": None, "line": 10, "first": 4,
+                    "lines": [f"line{n}" for n in range(4, 17)]}  # fmt: skip
+    assert error_snippet(script, "train.py", None, 99) is None
+    nb = nbformat.v4.new_notebook()
+    nb.cells = [nbformat.v4.new_code_cell("a = 1"), nbformat.v4.new_markdown_cell("m"),
+                nbformat.v4.new_code_cell("x = 1\ny = x / 0")]  # fmt: skip
+    snip = error_snippet(nbformat.writes(nb).encode(), "job.ipynb", 2, 2)
+    assert snip is not None and snip["lines"] == ["x = 1", "y = x / 0"] and snip["first"] == 1
+    assert error_snippet(nbformat.writes(nb).encode(), "job.ipynb", 3, 1) is None
+    assert parse_location(located("NameError: x", 5, 2)) == (2, 5)
+    assert parse_location(located("ValueError: y", 7)) == (None, 7)
+    assert parse_location("final checkpoint failed") is None
+    assert located("plain", None) == "plain"
+
+
+def test_the_colab_launcher_notebook_is_valid_and_finds_waiting_jobs() -> None:
+    import ast
+    import json
+    from pathlib import Path
+
+    from IPython.core.inputtransformer2 import TransformerManager
+
+    from gpurelay.constants import COLAB_LAUNCHER_URL
+
+    path = Path(__file__).parents[2] / "colab" / "open_job.ipynb"
+    nb = json.loads(path.read_text(encoding="utf-8"))
+    code = ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]
+    for source in code:
+        ast.parse(TransformerManager().transform_cell(source))
+    joined = "\n".join(code)
+    assert "GPURELAY_HF_TOKEN" in joined and "manual_session.json" in joined
+    assert "colab/resume.ipynb" in joined  # what ColabManualBackend uploads (layout.py)
+    assert COLAB_LAUNCHER_URL.endswith("/blob/main/colab/open_job.ipynb")
+
+
+def test_notebook_shell_commands_use_the_jobs_own_python(monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+    import sys
+    from pathlib import Path
+
+    from gpurelay.runtime.executor_notebook import job_python_first_on_path
+
+    here = str(Path(sys.executable).parent)
+    monkeypatch.setenv("PATH", os.pathsep.join(["/elsewhere/bin", here, "/usr/bin"]))
+    job_python_first_on_path()  # `!pip` must not reach another Python installation first
+    assert os.environ["PATH"].split(os.pathsep) == [here, "/elsewhere/bin", "/usr/bin"]
+    job_python_first_on_path()
+    assert os.environ["PATH"].split(os.pathsep)[0] == here

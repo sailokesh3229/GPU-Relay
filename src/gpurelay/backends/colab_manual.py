@@ -33,7 +33,7 @@ from gpurelay.config import ColabSettings, RuntimeSettings
 from gpurelay.errors import GpuRelayError
 from gpurelay.models import BackendCaps, BackendRunState, Job, LaunchHandle, ReadyStatus, Segment
 from gpurelay.storage.base import Storage
-from gpurelay.storage.layout import manual_session_key
+from gpurelay.storage.layout import colab_notebook_key, manual_session_key
 
 log = logging.getLogger(__name__)
 
@@ -154,6 +154,9 @@ class ColabManualBackend:
     def launch(self, job: Job, segment: Segment, deadline_s: float) -> LaunchHandle:
         """Prepare the notebook and ask for a session; nothing is started here."""
         path = self.write_notebook(job)
+        # In storage too, for the one-click launcher; before the request, so a launcher that
+        # sees the request always finds its notebook.
+        self.storage.put_bytes(path.read_bytes(), colab_notebook_key(job.id))
         request = {
             "segment_id": segment.id,
             "deadline_s": float(min(deadline_s, self.settings.max_session_s)),

@@ -12,11 +12,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from gpurelay.accounts.store import UserStore
+from gpurelay.constants import COLAB_LAUNCHER_URL
 from gpurelay.gateway.mail import Mailer
 
 MESSAGES = {
-    "awaiting_user": ("needs you on Colab", "Open your GPU Relay, download the job's Colab "
-                      "notebook, open it in Colab and press Run all."),
+    "awaiting_user": ("needs you on Colab", "Open it in Colab with this link, choose a GPU "
+                      f"(Runtime > Change runtime type) and press Run all:\n{COLAB_LAUNCHER_URL}"),
     "completed": ("finished", "Its outputs are ready in your GPU Relay."),
     "failed_user": ("stopped with an error in the script", "The job page shows the error."),
     "failed_infra": ("failed on the platforms", "The job page shows what happened; you can "

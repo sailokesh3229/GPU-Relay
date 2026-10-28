@@ -43,6 +43,11 @@ def control_key(job_id: str) -> str:
     return f"{job_prefix(job_id)}/control.json"
 
 
+def colab_notebook_key(job_id: str) -> str:
+    """The job's Colab resume notebook, for the launcher notebook (``colab/open_job.ipynb``)."""
+    return f"{job_prefix(job_id)}/colab/resume.ipynb"
+
+
 def manual_session_key(job_id: str) -> str:
     """Controller -> manual (Colab) notebook: which segment the user is asked to run."""
     return f"{job_prefix(job_id)}/manual_session.json"

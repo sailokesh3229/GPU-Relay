@@ -26,7 +26,12 @@ from gpurelay.config import (
 )
 from gpurelay.controller.registry import build_backends
 from gpurelay.models import BackendRunState, Job, JobKind, Segment
-from gpurelay.storage.layout import latest_key, manual_session_key, status_key
+from gpurelay.storage.layout import (
+    colab_notebook_key,
+    latest_key,
+    manual_session_key,
+    status_key,
+)
 from gpurelay.storage.localfs import LocalFSStorage
 
 SECRET = "hf_SUPERSECRET_token_value"
@@ -242,6 +247,9 @@ def test_launch_requests_a_session_and_cancel_withdraws_it(tmp_path: Path) -> No
     handle = backend.launch(job, seg, deadline_s=99999)
     assert Path(handle.extra["notebook"]).exists()
     request = json.loads(backend.storage.get_bytes(manual_session_key(job.id)) or b"")
+    # The resume notebook is in storage too, for the one-click launcher (colab/open_job.ipynb).
+    uploaded = backend.storage.get_bytes(colab_notebook_key(job.id)) or b""
+    assert uploaded == Path(handle.handle_id).read_bytes() and b"manual_session.json" in uploaded
     assert request["segment_id"] == seg.id and request["start_checkpoint_seq"] == 7
     assert request["deadline_s"] == 3600.0  # capped by the Colab session limit
     assert backend.poll(handle) is BackendRunState.UNKNOWN

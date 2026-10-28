@@ -27,6 +27,7 @@ from pathlib import Path
 
 import gpurelay
 from gpurelay.models import ExitCode
+from gpurelay.runtime.errorloc import deepest, located
 from gpurelay.runtime.instrument import (
     RELAY_NAME,
     InstrumentOptions,
@@ -121,7 +122,7 @@ def run_script(path: Path, session: RelaySession) -> tuple[ExitCode, str]:
                            options=InstrumentOptions.from_settings(session.settings))  # fmt: skip
     except SyntaxError as exc:
         print_user_traceback(exc)
-        return ExitCode.USER_ERROR, f"SyntaxError: {exc}"
+        return ExitCode.USER_ERROR, located(f"SyntaxError: {exc.msg}", exc.lineno)
     with main_module(path) as module:
         module.__dict__["__doc__"] = plan.docstring
         module.__dict__[RELAY_NAME] = session.relay_api
@@ -143,7 +144,10 @@ def run_script(path: Path, session: RelaySession) -> tuple[ExitCode, str]:
             return ExitCode.INFRA_ERROR, "interrupted"
         except Exception as exc:
             print_user_traceback(exc)
-            return ExitCode.USER_ERROR, f"{type(exc).__name__}: {exc}"
+            script = str(path)
+            where = deepest(exc.__traceback__, lambda f: True if f == script else None)
+            return ExitCode.USER_ERROR, located(f"{type(exc).__name__}: {exc}",
+                                                where[1] if where else None)  # fmt: skip
     if result is None or not result.ok:
         error = result.error if result is not None else None
         return ExitCode.INFRA_ERROR, f"final checkpoint failed: {error!r}"
