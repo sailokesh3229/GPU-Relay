@@ -273,6 +273,14 @@ class RelaySession:
             key: pickle.loads(base64.b64decode(raw))
             for key, raw in meta.get("iter_rng", {}).items()
         }
+        # [start, step] of active loops over a range, as first run: a job with its own
+        # resume logic (``range(start_epoch, ...)`` from its own checkpoint file, which the
+        # restored working files bring back) starts the range later on resume; the loop is
+        # then fast-forwarded by value instead of by count, so no iteration is skipped.
+        self._range_starts: dict[str, list[int]] = {}
+        self._resume_range_starts: dict[str, list[int]] = {
+            key: [int(v) for v in value] for key, value in meta.get("range_starts", {}).items()
+        }
         self.resume_target: Position | None = loaded.positions.get("position") if loaded else None
 
         self.blobs = BlobCache(self.runtime_dir / "blobs", storage, job_id)
@@ -548,7 +556,47 @@ class RelaySession:
         finally:
             self._frames.pop(key, None)
 
+    def _range_loop(self, loop_id: str, iterable: range) -> Iterator[Any]:
+        """A ``for`` over a range. Iteration numbers stay those of the first run's range; if
+        the job's own resume logic moved the range's start on resume, the fast-forward moves
+        with it (``range(2, 51)`` resuming after epoch 1 of ``range(1, 51)`` starts at 2)."""
+        key = self.tracker.next_loop_key()
+        first = [iterable.start, iterable.step]
+        saved = self._resume_range_starts.get(key) if self.tracker.replaying else None
+        shift = 0
+        if saved is not None and saved != first:
+            old_start, old_step = saved
+            moved = iterable.start - old_start
+            if iterable.step != old_step or moved % old_step:
+                raise ResumeMismatchError(
+                    f"loop {loop_id}: range({old_start}, ..., {old_step}) became "
+                    f"range({iterable.start}, ..., {iterable.step}) on resume"
+                )
+            shift = moved // old_step  # iterations the job's own resume logic already skipped
+            log.info("loop %s: the job itself resumes %d iteration(s) later; fast-forwarding "
+                     "by value", loop_id, shift)  # fmt: skip
+        self._range_starts[key] = saved if saved is not None else first
+
+        def items_from(start: int) -> Iterator[tuple[int, Any]]:
+            offset = start - shift
+            if offset < 0:
+                raise ResumeMismatchError(
+                    f"loop {loop_id}: the job's own resume logic starts {shift} iteration(s) "
+                    f"later, past the checkpoint (iteration {start})"
+                )
+            return ((start + n, iterable[offset + n]) for n in range(len(iterable) - offset))
+
+        try:
+            yield from run_loop(
+                self.tracker, len(iterable) + shift, loop_id, items_from,
+                self._on_iteration_end, loop_id=loop_id, adaptive=True,
+            )  # fmt: skip
+        finally:
+            self._range_starts.pop(key, None)
+
     def _auto_loop(self, loop_id: str, iterable: Any) -> Any:
+        if isinstance(iterable, range):
+            return self._range_loop(loop_id, iterable)
         total = _safe_len(iterable)
         if isinstance(iterable, MutableSequence):
             # Python iterates a list by index while index < len(list): it may grow or shrink
@@ -1016,6 +1064,7 @@ class RelaySession:
                     key: base64.b64encode(pickle.dumps(state)).decode("ascii")
                     for key, state in self._iter_rng.items()
                 },
+                "range_starts": dict(self._range_starts),
                 "final": final,
                 **extra_meta,
             },
