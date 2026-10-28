@@ -132,8 +132,11 @@ def upload_bundle(
     requirements: Path | None = None,
     data: list[DataSpec] | None = None,
     include_wheel: bool = True,
+    staged: list[StagedData] | None = None,
 ) -> BundleManifest:
-    """Package ``entry`` (+ extra files, requirements, data) and upload it for ``job_id``."""
+    """Package ``entry`` (+ extra files, requirements, data) and upload it for ``job_id``.
+
+    ``staged``: data already staged for an earlier job (a rerun reuses it as it was)."""
     entry = Path(entry)
     if not entry.is_file():
         raise BundleError(f"{entry} does not exist")
@@ -146,7 +149,8 @@ def upload_bundle(
     for rel, path in files.items():
         if not Path(path).is_file():
             raise BundleError(f"{rel}: {path} does not exist")
-    staged = [_stage_spec(storage, spec, entry.parent) for spec in (data or [])]
+    if staged is None:
+        staged = [_stage_spec(storage, spec, entry.parent) for spec in (data or [])]
 
     import gpurelay
 
@@ -190,6 +194,12 @@ def _files(storage: Storage, job_id: str, manifest: BundleManifest) -> dict[str,
         if rel not in files or hashlib.sha256(files[rel]).hexdigest() != sha:
             raise ChecksumMismatchError(f"bundle file {rel} does not match its manifest")
     return files
+
+
+def read_bundle_files(storage: Storage, job_id: str) -> tuple[BundleManifest, dict[str, bytes]]:
+    """The manifest and every bundled file (e.g. to submit a fixed copy of a job)."""
+    manifest = read_manifest(storage, job_id)
+    return manifest, _files(storage, job_id, manifest)
 
 
 def read_bundle_file(storage: Storage, job_id: str, rel: str) -> bytes:
@@ -266,6 +276,7 @@ __all__ = [
     "BundleError",
     "download_bundle",
     "read_bundle_file",
+    "read_bundle_files",
     "read_manifest",
     "stage_data",
     "upload_bundle",

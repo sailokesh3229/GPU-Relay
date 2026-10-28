@@ -367,6 +367,21 @@ class UserStore:
         self._run("DELETE FROM links WHERE token_hash = ?", (token_hash,))
         return str(row[0]) if float(row[1]) >= self.clock() else None
 
+    def link_user(self, token_hash: str, kind: str) -> str | None:
+        """The user of a lasting key (the AI helper's), which stays valid after use."""
+        row = self._one(
+            "SELECT user_id, expires_at FROM links WHERE token_hash = ? AND kind = ?",
+            (token_hash, kind),
+        )
+        return str(row[0]) if row is not None and float(row[1]) >= self.clock() else None
+
+    def has_link(self, user_id: str, kind: str) -> bool:
+        row = self._one("SELECT 1 FROM links WHERE user_id = ? AND kind = ?", (user_id, kind))
+        return row is not None
+
+    def delete_links(self, user_id: str, kind: str) -> None:
+        self._run("DELETE FROM links WHERE user_id = ? AND kind = ?", (user_id, kind))
+
     # ---------------------------------------------------------------- site facts
 
     def meta(self, key: str) -> str | None:

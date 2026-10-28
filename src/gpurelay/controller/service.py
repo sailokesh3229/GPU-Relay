@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from gpurelay.bundle.manifest import StagedData
 from gpurelay.bundle.packager import upload_bundle
 from gpurelay.config import Config, gpurelay_home
 from gpurelay.constants import STATE_DB_FILENAME
@@ -85,6 +86,9 @@ def submit_job(
     accept_restart_only: bool = False,
     extra_files: Mapping[str, Path] | None = None,
     max_paid_usd: float = 0.0,
+    staged: list[StagedData] | None = None,
+    retry_of: str | None = None,
+    fix_id: str | None = None,
 ) -> Job:
     if prefer is not None and prefer not in ctx.controller.backends:
         raise ServiceError(
@@ -101,10 +105,13 @@ def submit_job(
         prefer_backend=prefer,
         accept_restart_only=accept_restart_only,
         max_paid_usd=max_paid_usd,
+        retry_of=retry_of,
+        fix_id=fix_id,
     )
     manifest = upload_bundle(
-        ctx.storage, job.id, path, extra_files, requirements=requirements, data=data
-    )
+        ctx.storage, job.id, path, extra_files, requirements=requirements, data=data,
+        staged=staged,
+    )  # fmt: skip
     job = job.model_copy(update={"bundle_hash": manifest.content_hash})
     ctx.db.put_job(job)
     ctx.db.add_event("submitted", f"{path.name} ({manifest.content_hash[:12]})",

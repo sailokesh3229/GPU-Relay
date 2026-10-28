@@ -142,6 +142,31 @@ a.button[aria-disabled="true"]{background:var(--line);color:var(--muted);pointer
       <div class="btns"><button type="submit">Save</button></div>
     </form>
   </section>
+
+  <section class="card" id="ai">
+    <div class="head"><h2>6. AI auto-fix <span class="muted">(optional, uses your own Claude plan)</span></h2><span class="pill" id="ai-state">Not set up</span></div>
+    <p class="muted">When a job stops with an error in its code, its page offers <strong>Fix it with AI</strong>. The AI on your own computer reads the code and the error and suggests a change, under your own plan (Claude Pro or Max, or ChatGPT Plus or Pro), so you need no API key. You look at the change and click <strong>Apply and rerun</strong>. Nothing is sent to the AI until you click, unless you turn on automatic reruns below.</p>
+    <ul><li>On your computer, install Claude Code (<a href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">how</a>; on Windows: <code>irm https://claude.ai/install.ps1 | iex</code> in PowerShell). Then run <code>claude</code> once and sign in with <code>/login</code>. Claude Code gets no tools at all: it cannot open files or run commands.</li>
+      <li>Optional, with a ChatGPT plan: install Codex (<code>npm install -g @openai/codex</code>) and run <code>codex login</code>. GPU Relay asks it when Claude's fix did not work, or when it has fixed that kind of error more often. Codex runs in its read-only sandbox.</li>
+      <li>Install GPU Relay there too (needs Python 3.10+): <code>pip install "gpurelay @ git+https://github.com/sailokesh3229/GPU-Relay"</code></li>
+      <li>Make a helper key below and run the command it shows. Keep that window open while you want AI fixes; after the first time, <code>gpurelay helper</code> alone starts it.</li></ul>
+    <div class="note" id="ai-key" hidden>
+      <p><strong>Your helper key is shown only once.</strong> Run this on your computer:</p>
+      <textarea id="ai-cmd" readonly spellcheck="false"></textarea>
+      <div class="btns"><button class="plain small" type="button" id="ai-copy">Copy</button></div>
+    </div>
+    <span class="msg" id="ai-msg" role="status"></span>
+    <div class="btns"><button type="button" id="ai-new">Make a helper key</button><button class="plain" type="button" id="ai-remove">Remove the key</button></div>
+    <form data-step="aifix">
+      <label class="check"><input type="checkbox" name="auto"> Fix and rerun automatically when a job stops with an error in its code</label>
+      <div class="row">
+        <label>AI fixes per job<input name="max_attempts" type="number" min="1" max="5" value="2"></label>
+        <label>GPU hours for all attempts of a job<input name="max_gpu_hours" type="number" min="0.5" max="200" step="0.5" value="6"></label>
+      </div>
+      <span class="msg" role="status"></span>
+      <div class="btns"><button type="submit">Save</button></div>
+    </form>
+  </section>
 </main>
 <script>
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -160,6 +185,8 @@ function render(s) {
   accel.value = st.kaggle.accelerator || s.accelerators[0];
   const colab = $('form[data-step="colab"]');
   colab.enabled.checked = st.colab.enabled; colab.first.checked = st.colab.first; colab.wait_min.value = st.colab.wait_min;
+  const aifix = $('form[data-step="aifix"]');
+  if (st.aifix) { aifix.auto.checked = st.aifix.auto; aifix.max_attempts.value = st.aifix.max_attempts; aifix.max_gpu_hours.value = st.aifix.max_gpu_hours; }
   const limits = $('form[data-step="limits"]');
   limits.modal_paid_cap_usd.value = st.modal.paid_cap_usd; limits.kaggle_weekly_hours.value = st.kaggle.weekly_hours;
   $("#ready").textContent = s.ready
@@ -178,6 +205,7 @@ function body(form) {
   if (step === "hf") return {token: f.get("token"), repo: f.get("repo") || null};
   if (step === "kaggle") return {token: f.get("token") || null, accelerator: f.get("accelerator")};
   if (step === "modal") return {token_id: f.get("token_id"), token_secret: f.get("token_secret"), gpu: f.get("gpu") || null, terms: form.terms.checked};
+  if (step === "aifix") return {auto: form.auto.checked, max_attempts: Number(f.get("max_attempts")), max_gpu_hours: Number(f.get("max_gpu_hours"))};
   if (step === "colab") return {enabled: form.enabled.checked, first: form.first.checked, wait_min: Number(f.get("wait_min"))};
   return {modal_paid_cap_usd: Number(f.get("modal_paid_cap_usd")), kaggle_weekly_hours: Number(f.get("kaggle_weekly_hours"))};
 }
@@ -202,6 +230,44 @@ document.querySelectorAll("form[data-step]").forEach((form) => {
   if (rm) rm.addEventListener("click", () => send(form, "/api/setup/remove", {name: rm.dataset.remove}));
 });
 load();
+// AI auto-fix: the helper key (shown once) and whether the helper is connected.
+async function aiLoad() {
+  try {
+    const r = await fetch("/api/ai/helper");
+    if (!r.ok) return;
+    const h = await r.json(), tool = (h.tools || [])[0];
+    const text = !h.key ? "Not set up" : !h.connected ? "Key made · helper not running"
+      : !tool ? "Helper connected · Claude Code not found" : !tool.signed_in ? "Helper connected · Claude Code not signed in"
+      : `Ready · ${tool.label} ${tool.version}${tool.plan ? " · " + tool.plan + " plan" : ""}`;
+    pill("ai-state", h.connected && tool && tool.signed_in, text);
+    $("#ai-new").textContent = h.key ? "Make a new key (the old one stops working)" : "Make a helper key";
+  } catch (e) { /* shown on the next look */ }
+}
+async function aiPost(path) {
+  const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : "The server did not answer. Try again.");
+  return data;
+}
+$("#ai-new").addEventListener("click", async () => {
+  const msg = $("#ai-msg");
+  try {
+    const data = await aiPost("/api/ai/helper/key");
+    $("#ai-cmd").value = `gpurelay helper --site ${location.origin} --key ${data.key}`;
+    $("#ai-key").hidden = false; msg.textContent = ""; aiLoad();
+  } catch (e) { msg.textContent = e.message; msg.className = "msg bad"; }
+});
+$("#ai-copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("#ai-cmd").value); $("#ai-copy").textContent = "Copied"; }
+  catch (e) { $("#ai-cmd").select(); }
+});
+$("#ai-remove").addEventListener("click", async () => {
+  const msg = $("#ai-msg");
+  try { await aiPost("/api/ai/helper/remove"); $("#ai-key").hidden = true; msg.textContent = "Removed. The helper can no longer connect."; msg.className = "msg good"; aiLoad(); }
+  catch (e) { msg.textContent = e.message; msg.className = "msg bad"; }
+});
+aiLoad();
+setInterval(aiLoad, 10000);
 fetch("/api/me").then((r) => r.json()).then((me) => { if (me.user) $("#who").textContent = "Signed in as " + me.user.name; }).catch(() => {});
 </script>
 </body>

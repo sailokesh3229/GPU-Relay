@@ -79,7 +79,15 @@ Nobody sees anyone else's jobs or tokens, and the server holds no platform token
 3. for automatic free GPUs: a Kaggle account with a **verified phone** and its API token;
 4. optional: a Modal account with a payment method and its token ($30 free a month);
 5. optional: Colab, with a `GPURELAY_HF_TOKEN` secret holding the Hugging Face token;
-6. the job: a `.py` or `.ipynb`, plus `requirements.txt` if needed.
+6. the job: a `.py` or `.ipynb`, plus `requirements.txt` if needed;
+7. optional, for **Fix it with AI**: Claude Code on your own computer, signed in to your
+   Claude Pro or Max plan (and/or Codex with a ChatGPT plan; no API key), and `gpurelay
+   helper` running there with the helper key from setup step 6. When a job stops with an
+   error in its code, its page then offers **Fix it with AI** next to **Check it myself**,
+   shows the suggested change as a diff, and **Apply and rerun** starts the fixed job. With
+   automatic reruns on, GPU Relay does that by itself, within limits you set. It picks the
+   model by the kind of error, moves to a stronger one when a fix did not work, and learns
+   which one fixes what.
 
 Each token is checked with its platform before it is kept, stored encrypted, and never shown
 again. Optional email confirms addresses, resets passwords and tells you when a job needs you

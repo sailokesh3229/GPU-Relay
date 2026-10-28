@@ -154,6 +154,8 @@ def _job_json(row: JobRow) -> dict[str, Any]:
         "estimate_h": job.estimate_h,
         "max_paid_usd": job.max_paid_usd,
         "cost_usd": round(row.cost_usd, 4),
+        "retry_of": job.retry_of,
+        "fix_id": job.fix_id,
     }
 
 
@@ -214,12 +216,18 @@ def create_app(
     desktop: DesktopHooks | None = None,
     launch_key: str | None = None,
     setup_deps: SetupDeps | None = None,
+    ai_fix: str = "local",
+    ai: Any = None,
 ) -> FastAPI:
     """``allowed_hosts``: accepted ``Host`` names. Anything else is refused, which stops DNS
     rebinding (a website pointing its own domain at 127.0.0.1 to reach this API). None accepts
     any host, for a server behind ``auth``.
 
-    ``auth``: require a login; viewers may only read. Without it everyone is the owner."""
+    ``auth``: require a login; viewers may only read. Without it everyone is the owner.
+
+    ``ai_fix``: where "Fix it with AI" runs the user's AI tool (``dashboard/aifix_routes``):
+    ``"local"`` on this computer, ``"helper"`` on the user's laptop (the website).
+    ``ai``: a ready-made :class:`~gpurelay.dashboard.aifix_routes.AiFix` instead (tests)."""
     if desktop is not None and (auth is not None or launch_key is None):
         raise ValueError("the desktop app runs locally with a launch key, never behind a login")
     if allowed_hosts is None and auth is None:
@@ -320,6 +328,11 @@ def create_app(
     def row_for(job: Job, now: float) -> JobRow:
         return next(r for r in job_rows(controller, now) if r.job.id == job.id)
 
+    if ai is None:
+        from gpurelay.dashboard.aifix_routes import AiFix
+
+        ai = AiFix(ctx, find, ai_fix, action_header=ACTION_HEADER)
+
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         return resources.files("gpurelay.dashboard").joinpath("index.html").read_text("utf-8")
@@ -328,9 +341,11 @@ def create_app(
     def overview() -> dict[str, Any]:
         now = clock()
         rows = sorted(job_rows(controller, now), key=lambda r: r.job.submitted_at, reverse=True)
+        ai.maybe_tick()  # automatic reruns and the record of fixes (spec §20)
         return {
             "now": _iso(now),
             "controller_running": controller_running(ctx.home),
+            "ai_busy": ai.busy(),
             "jobs": [_job_json(r) for r in rows],
             "backends": [
                 {
@@ -613,6 +628,8 @@ def create_app(
                 "heartbeat_s": cfg.runtime.heartbeat_s,
             },
         }
+
+    app.include_router(ai.router)  # before the job actions: /api/jobs/{id}/fix is its own
 
     @app.post("/api/jobs/{job_id}/{action}")
     def job_action(

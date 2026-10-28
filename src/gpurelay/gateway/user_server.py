@@ -63,8 +63,9 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - wires real
     watch_stop_file(home, name=STOP_NAME)
     try:
         ctx = open_context(load_config(config_path))
-        uvicorn.run(create_app(ctx, allowed_hosts=LOCAL_HOSTS, launch_key=key),
-                    host="127.0.0.1", port=args.port, log_level="warning")  # fmt: skip
+        # The AI tools are on the user's laptop: their helper answers fix requests.
+        app = create_app(ctx, allowed_hosts=LOCAL_HOSTS, launch_key=key, ai_fix="helper")
+        uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     finally:
         with contextlib.suppress(Exception):
             supervisor.stop()

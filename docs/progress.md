@@ -1274,3 +1274,82 @@ GPU Relay's aim becomes the lowest GPU cost: free first, paid only within limits
   47): two active users fit the free plan's 512 MB.
 - Known gap: the desktop app's "My server" mode expects the single-owner site (it reads
   `/api/overview` without signing in); with the website, job emails replace its notices.
+
+## Phase A1 — "Fix it with AI" with the user's own Claude Code (2026-10-28, local only)
+
+- A job that failed in its code shows **What now?** on its page: **Check it myself** (the
+  highlighted line and the Log tab) or **Fix it with AI**. The answer is shown as an
+  explanation plus a before/after diff per cell, with a copy button. Applying it is A2.
+- `aifix/request.py`: what is sent (every code cell, the error with its location, the last
+  8,000 characters of the log, the platform) and how the JSON answer becomes checked changes.
+- `aifix/claude_code.py`: `claude -p` with **no tools** (`--tools ""`), a JSON schema,
+  `--safe-mode`, no MCP, no saved session, in an empty temporary folder, without GPU Relay's
+  tokens in its environment. `detect()` reports the version, signed in, and the plan (never
+  the account's email). Default model `sonnet`.
+- `aifix/board.py`: requests as JSON files in the GPU Relay home; a collected request with no
+  answer fails after 15 min; every answer is re-checked against the code that was sent (only
+  each change's cell and new source are taken).
+- `dashboard/aifix_routes.py`: `/api/ai`, `/api/jobs/<id>/fix` (GET, POST); on the website
+  also `/api/helper/poll` and `/api/helper/fixes/<id>`. Desktop and `gpurelay dashboard` run
+  Claude Code themselves ("local"); each website user's GPU Relay waits for their helper.
+- Website: `gateway/helper_routes.py` and setup step 6 **AI auto-fix**: a helper key (shown
+  once, only its hash kept, a new one replaces the old, removable); `/helper/v1/poll` and
+  `/helper/v1/fixes/<id>` with `Authorization: Bearer <key>`, rate-limited on wrong keys;
+  polls never start or wake the user's GPU Relay. Setup shows "Ready · Claude Code 2.1.312 ·
+  pro plan" while the helper runs.
+- `gpurelay helper --site https://... --key grh_...`: the laptop side; outgoing HTTPS only,
+  polls every 5 s, saves the site in `helper.json` and the key in the OS keyring.
+- Browser notification when a job stops with an error in its code (click: its page); the job
+  email says where to look and that Fix it with AI is there.
+- Tests: `test_aifix.py` (26), including the whole path browser → website → the user's real
+  web app → helper → answer. 609 unit tests pass; ruff, ruff format, mypy clean.
+- Real checks on the owner's laptop, Claude Code 2.1.312 (Pro): a notebook shape error fixed
+  with `x.flatten(1)` in 5 s; a demo job run by the controller (`len(score)` NameError) fixed
+  through the running dashboard in 8 s, diff `len(score)` → `len(scores)`.
+- Not yet: the live website (deploy), a browser look at the page (the Chrome extension was not
+  connected), A2 (apply and rerun), A3 (Codex, model choice).
+
+## Phase A2 — Apply and rerun, automatic reruns (2026-10-28, local only)
+
+- `aifix/apply.py`: **Apply and rerun** submits the bundle with the fix (notebook cells
+  swapped, old outputs cleared; a script replaced) as `<name> · fix N`: same extra files,
+  requirements, staged data (reused as staged: `upload_bundle(staged=...)`), priority,
+  platform, paid limit; `Job.retry_of` / `Job.fix_id` link the attempts. A fix applies once;
+  a job is rerun once (the next attempt is the rerun's own).
+- Job page: Apply and rerun under the diff; afterwards "Applied: rerun as ..." and what the
+  rerun showed; a rerun's page links back ("A rerun with an AI fix of ...").
+- Automatic reruns (`[aifix] auto`, off by default): Settings card on the desktop, setup step
+  6 on the website (`/api/setup/aifix`). Limits: `max_attempts` (2) fixes per job,
+  `max_gpu_hours` (6) for all attempts, failures in the last 24 h only. The check runs at most
+  every 10 s, from overview requests. `ai_busy` in the overview keeps a website user's GPU
+  Relay running meanwhile (`Children.tick`).
+- The website's job limit applies to reruns (`.../apply` counts like a submit).
+- Real check on the owner's laptop (Claude Code 2.1.312, Pro): demo job `len(score)`:
+  Sonnet fixed it, Apply and rerun, the controller ran `demo · fix 1`, completed, recorded
+  `fixed`. With automatic reruns on: `math.sqrt(v - 1)` ValueError; 15 s later, nobody
+  clicking, Opus proposed `max(v - 1, 0)`, the rerun was submitted, ran and completed
+  (`roots [2.0, 1.0, 0.0, 0.0]`), recorded `fixed`.
+
+## Phase A3 — Codex, model choice, escalation, the record of fixes (2026-10-28, local only)
+
+- `aifix/codex.py`: `codex exec -` (prompt on stdin), `--sandbox read-only`,
+  `--skip-git-repo-check`, `--ephemeral`, `--output-schema`, `-o`; `-m` only when set
+  (`codex_model`). Codex cannot be run with no tools: read-only sandbox, empty folder.
+- `aifix/tool.py`: what adapters share (tool info, environment without GPU Relay's tokens,
+  one attempt to a result). The answer schema is strict (`additionalProperties: false`).
+- `aifix/choice.py`: `error_kind`, `plan` (simple: sonnet, opus, Codex; hard: opus, Codex,
+  sonnet; only signed-in tools), escalation by earlier fixes in the chain, the record
+  (`aifix/stats.json`; after 3 tries the best goes first), `solve` (fallback to the next
+  step, which steps were tried, the step that worked).
+- The helper reports both tools and follows each request's plan; `--model` overrides the
+  Claude model. The desktop and `gpurelay dashboard` do the same locally.
+- Setup step 6 explains Codex (`npm install -g @openai/codex`, `codex login`).
+- Tests: `test_aifix_rerun.py` (23) and `test_aifix.py` (26, updated). 632 unit tests pass;
+  ruff, ruff format, mypy clean.
+- Not tried live: Codex (not installed here; flags from OpenAI's docs, `docs/verify.md` #32).
+- Before release (2026-10-29): 632 unit tests and 56 of 58 integration tests pass. Two fail
+  only under load, and not because of A1-A3 (which change nothing in `runtime/`):
+  `test_function_loops_opt_in_restore_locals` fails with kill seeds 2 and 6 (window
+  1.0-2.0 s) on the code before 9fe6387 as well (an older bug in `instrument_functions`:
+  after several kills, `train()` returns an empty `history`; not yet fixed);
+  `test_hf_trainer_unmodified_handoffs` had a different log once and passed on its own.

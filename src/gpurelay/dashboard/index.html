@@ -33,6 +33,9 @@ button,input,select,textarea{font:inherit;color:inherit}
 .code-line{display:flex;gap:12px;padding:0 12px;white-space:pre}
 .code-line.bad{background:rgba(180,35,24,.12);font-weight:700}
 .code-no{min-width:2.5em;text-align:right;color:var(--muted);user-select:none}
+.code-line.add{background:rgba(6,118,71,.13)}
+.code-line.del{background:rgba(180,35,24,.10)}
+.code-line.hunk{color:var(--muted)}
 .result-cell{display:flex;flex-direction:column;gap:6px;padding:10px 0;border-bottom:1px solid var(--line)}
 .result-img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
 .result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
@@ -300,9 +303,27 @@ function notifyColab(actions) {
     } catch (e) { /* notifications not allowed here */ }
   }
 }
+// A job that stops because of an error in its code: a notification that opens its page,
+// where the user picks "Fix it with AI" or "Check it myself".
+const failedSeen = new Set();
+let failedPrimed = false;
+function notifyFailed(jobs) {
+  const failed = jobs.filter((j) => j.state === "failed_user");
+  const fresh = failed.filter((j) => !failedSeen.has(j.id));
+  failed.forEach((j) => failedSeen.add(j.id));
+  if (!failedPrimed) { failedPrimed = true; return; }
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  for (const j of fresh) {
+    try {
+      const n = new Notification(`${j.name} stopped with an error in its code`, {body: "Click to see where, and fix it yourself or with AI.", tag: `failed-${j.id}`});
+      n.onclick = () => { window.focus(); location.hash = `#/job/${encodeURIComponent(j.id)}`; n.close(); };
+    } catch (e) { /* notifications not allowed here */ }
+  }
+}
 async function refreshShell() {
   overview = await api("api/overview");
   notifyColab(overview.colab_actions || []);
+  notifyFailed(overview.jobs || []);
   const active = overview.jobs.filter((j) => !j.terminal).length;
   document.getElementById("nav-count").textContent = String(active);
   const on = overview.controller_running;
@@ -464,7 +485,8 @@ async function jobView(id) {
     el("header", {class: "page"},
       el("div", {style: "display:flex;flex-direction:column;gap:6px"},
         el("div", {style: "display:flex;flex-wrap:wrap;align-items:center;gap:12px"}, el("h1", {text: job.name}), chip(job.state, where)),
-        el("p", {class: "muted"}, el("span", {class: "mono", text: job.id}), ` · ${job.entry} · submitted ${when(job.submitted_at)}${job.prefer_backend ? ` · runs on ${backendLabel(job.prefer_backend)}` : ""}`)),
+        el("p", {class: "muted"}, el("span", {class: "mono", text: job.id}), ` · ${job.entry} · submitted ${when(job.submitted_at)}${job.prefer_backend ? ` · runs on ${backendLabel(job.prefer_backend)}` : ""}`),
+        job.retry_of ? el("p", {class: "muted"}, "A rerun with an AI fix of ", el("a", {href: `#/job/${encodeURIComponent(job.retry_of)}`, text: job.retry_of}), ".") : null),
       actions),
     el("p", {class: "msg", id: "act-msg", role: "status"}),
     job.state === "failed_user" ? el("div", {id: "err-where"}) : null,
@@ -532,19 +554,112 @@ async function loadLog(job, out) {
 async function loadErrorWhere(job) {
   const box = document.getElementById("err-where");
   if (!box) return;
+  const parts = [];
   try {
     const e = await api(`api/jobs/${encodeURIComponent(job.id)}/error`);
-    if (!e.found) return;
-    const rows = e.lines.map((text, k) => {
-      const n = e.first + k, bad = n === e.line;
-      return el("div", {class: bad ? "code-line bad" : "code-line"},
-        el("span", {class: "code-no", text: String(n)}), el("span", {class: "code-text", text: bad ? text + "   ← the error is here" : text || " "}));
-    });
-    box.replaceChildren(el("section", {class: "card", "aria-labelledby": "err-h"},
-      el("h2", {id: "err-h", text: e.cell ? `Where it failed: cell ${e.cell}, line ${e.line}` : `Where it failed: line ${e.line} of ${e.entry}`}),
-      el("p", {class: "small muted", text: "Fix this line in your code and submit the job again. The Log tab has the full traceback."}),
-      el("div", {class: "code-box", role: "region", "aria-label": "Code around the error"}, rows)));
+    if (e.found) {
+      const rows = e.lines.map((text, k) => {
+        const n = e.first + k, bad = n === e.line;
+        return el("div", {class: bad ? "code-line bad" : "code-line"},
+          el("span", {class: "code-no", text: String(n)}), el("span", {class: "code-text", text: bad ? text + "   ← the error is here" : text || " "}));
+      });
+      parts.push(el("section", {class: "card", "aria-labelledby": "err-h"},
+        el("h2", {id: "err-h", text: e.cell ? `Where it failed: cell ${e.cell}, line ${e.line}` : `Where it failed: line ${e.line} of ${e.entry}`}),
+        el("p", {class: "small muted", text: "The Log tab has the full traceback."}),
+        el("div", {class: "code-box", role: "region", "aria-label": "Code around the error"}, rows)));
+    }
   } catch (err) { /* the banner and the Log tab still show the error */ }
+  if (owner()) parts.push(fixCard(job));
+  box.replaceChildren(...parts);
+}
+
+// ---------------------------------------------------------------- Fix it with AI (spec §20)
+// The user's own AI (Claude Code, on their plan) suggests a fix; nothing changes until they
+// look at it. On the website the helper on their laptop runs it.
+let fixPoll = null;
+function fixCard(job) {
+  const note = el("p", {class: "small muted", role: "status"});
+  const result = el("div", {style: "display:flex;flex-direction:column;gap:12px"});
+  const ask = el("button", {class: "btn primary", type: "button", onclick: async () => {
+    ask.disabled = true;
+    try { const r = await post(`api/jobs/${encodeURIComponent(job.id)}/fix`); showFix(job, r.fix, result, ask); }
+    catch (e) { result.replaceChildren(el("p", {class: "msg err", text: e.message})); ask.disabled = false; }
+  }}, "Fix it with AI");
+  const self = el("button", {class: "btn", type: "button", onclick: async () => {
+    outTab = "log"; await show();
+    const target = document.getElementById("err-h") || document.getElementById("out-h");
+    if (target) target.scrollIntoView({behavior: "smooth", block: "start"});
+  }}, "Check it myself");
+  aiNote(note);
+  api(`api/jobs/${encodeURIComponent(job.id)}/fix`).then((r) => { if (r.fix) showFix(job, r.fix, result, ask); }).catch(() => {});
+  return el("section", {class: "card", "aria-labelledby": "fix-h"},
+    el("h2", {id: "fix-h", text: "What now?"}),
+    el("p", {class: "muted", text: "Check it yourself with the line above and the traceback in the Log tab, or let your own AI suggest a fix. It only reads the code and the error; nothing is changed or rerun without you, unless you turned on automatic reruns in Settings."}),
+    el("div", {style: "display:flex;gap:8px;flex-wrap:wrap"}, ask, self), note, result);
+}
+async function aiNote(note) {
+  try {
+    const ai = await api("api/ai");
+    const tool = (ai.tools || [])[0];
+    if (ai.ready) { note.textContent = `Uses ${tool.label}${tool.plan ? ` (your ${tool.plan} plan)` : ""}${ai.mode === "helper" ? " through the helper on your computer" : " on this computer"}.`; return; }
+    if (ai.mode === "helper") {
+      note.replaceChildren(ai.helper && ai.helper.connected ? "Your helper is connected, but Claude Code there is not signed in: run claude and /login on that computer."
+        : "Your helper is not running, so a request waits until it starts. Set it up once under ", el("a", {href: "/setup#ai"}, "Set up accounts → AI auto-fix"), ".");
+    } else {
+      note.textContent = tool ? "Claude Code is installed here but not signed in: run claude, then /login." : "Install Claude Code on this computer and sign in (claude, then /login) to use this.";
+    }
+  } catch (e) { note.textContent = ""; }
+}
+function showFix(job, fix, out, ask) {
+  clearTimeout(fixPoll);
+  if (!fix || !out.isConnected) return;
+  const waiting = fix.state === "waiting" || fix.state === "working";
+  ask.disabled = waiting;
+  if (waiting) {
+    out.replaceChildren(el("p", {class: "msg", text: fix.state === "waiting" ? "Waiting for your AI to pick it up…" : `Your AI is working on it (about a minute)…`}));
+    fixPoll = setTimeout(async () => {
+      try { const r = await api(`api/jobs/${encodeURIComponent(job.id)}/fix`); showFix(job, r.fix, out, ask); } catch (e) { /* try on the next look */ }
+    }, 3000);
+    return;
+  }
+  const r = fix.result || {};
+  ask.textContent = "Ask again (a stronger model)";
+  if (!r.ok) { out.replaceChildren(el("p", {class: "msg err", text: `No fix: ${r.error || "the AI gave no answer"}`})); return; }
+  const tool = {claude_code: "Claude Code", codex: "Codex"}[r.tool] || r.tool;
+  const by = [tool, r.model, r.seconds ? `${Math.round(r.seconds)} s` : null, fix.auto ? "asked automatically" : null].filter(Boolean).join(" · ");
+  const status = el("p", {class: "msg", role: "status"});
+  let next = null;
+  if (fix.applied_job) {
+    const verdict = {fixed: "It worked: the rerun got past this error.", not_fixed: "The rerun stopped at the same error.", unknown: "The rerun stopped for another reason."}[fix.outcome] || "The rerun is under way.";
+    next = el("p", {}, "Applied: rerun as ", el("a", {href: `#/job/${encodeURIComponent(fix.applied_job)}`, text: fix.applied_job}), `. ${verdict}`);
+  } else if (r.changes.length && job.state === "failed_user") {
+    const apply = el("button", {class: "btn primary", type: "button", onclick: async () => {
+      apply.disabled = true; status.className = "msg"; status.textContent = "Submitting the fixed job…";
+      try {
+        const a = await post(`api/jobs/${encodeURIComponent(job.id)}/fix/${encodeURIComponent(fix.id)}/apply`);
+        status.className = "msg good"; status.replaceChildren("Submitted as ", el("a", {href: `#/job/${encodeURIComponent(a.job_id)}`, text: a.name}), ". It starts from the beginning with the fix.");
+      } catch (e) { status.className = "msg err"; status.textContent = e.message; apply.disabled = false; }
+    }}, "Apply and rerun");
+    next = el("div", {style: "display:flex;flex-direction:column;gap:6px"},
+      el("div", {style: "display:flex;gap:8px;flex-wrap:wrap"}, apply),
+      el("p", {class: "small muted", text: "Starts this job again from the beginning with the change, as a new job. This one stays as it was. Or copy the new code and submit it yourself."}));
+  }
+  out.replaceChildren(
+    el("div", {class: "banner info"}, el("div", {}, el("strong", {text: r.changes.length ? "Suggested fix" : "No code change suggested"}), el("span", {text: r.explanation || ""}), el("span", {class: "small", text: by}))),
+    ...r.changes.map((c) => diffBox(job, c)), next, status);
+}
+function diffBox(job, change) {
+  const rows = change.diff.split("\n").filter((line) => !line.startsWith("---") && !line.startsWith("+++")).map((line) => {
+    const kind = line.startsWith("@@") ? "hunk" : line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "";
+    return el("div", {class: `code-line ${kind}`}, el("span", {class: "code-text", text: line || " "}));
+  });
+  const label = job.entry.endsWith(".ipynb") ? `Cell ${change.cell}` : job.entry;
+  const copy = el("button", {class: "btn small", type: "button", onclick: async () => {
+    try { await navigator.clipboard.writeText(change.after); copy.textContent = "Copied"; } catch (e) { copy.textContent = "Copy failed: select the code below"; }
+  }}, `Copy the new ${job.entry.endsWith(".ipynb") ? "cell" : "script"}`);
+  return el("div", {style: "display:flex;flex-direction:column;gap:6px"},
+    el("div", {style: "display:flex;gap:10px;align-items:center;flex-wrap:wrap"}, el("strong", {text: label}), copy),
+    el("div", {class: "code-box", role: "region", "aria-label": `Changes to ${label}`}, rows));
 }
 async function loadResults(job, out) {
   out.replaceChildren(el("p", {class: "muted", text: "Loading…"}));
@@ -763,7 +878,31 @@ async function settingsView() {
       el("dt", {text: "View-only password"}), el("dd", {text: s.viewer_access ? "on" : "off"}),
       el("dt", {text: "Work at risk"}), el("dd", {text: `at most ${span(s.runtime.max_lost_work_s)} of GPU work per interruption`}),
       el("dt", {text: "Version"}), el("dd", {class: "mono", text: s.version}))),
+    owner() ? await aiSettingsCard() : null,
     me.desktop ? await desktopCard() : null);
+}
+async function aiSettingsCard() {
+  let ai;
+  try { ai = await api("api/ai"); } catch (e) { return null; }
+  const st = ai.settings, tools = (ai.tools || []).filter((t) => t.signed_in).map((t) => `${t.label}${t.plan ? ` (${t.plan})` : ""}`);
+  const head = [el("h2", {text: "AI auto-fix"}),
+    el("p", {class: "muted", text: tools.length ? `Fixes use ${tools.join(" and ")}, under your own plan.` : ai.mode === "helper" ? "Fixes use the AI on your computer through the helper." : "Install Claude Code (or Codex) on this computer and sign in to use Fix it with AI."})];
+  if (!ai.settings_here) {
+    return el("section", {class: "card"}, ...head, el("p", {}, `Automatic reruns are ${st.auto ? "on" : "off"}. Change them under `, el("a", {href: "/setup#ai"}, "Set up accounts → AI auto-fix"), "."));
+  }
+  const auto = el("input", {type: "checkbox", id: "ai-auto"}); auto.checked = st.auto;
+  const tries = el("input", {type: "number", id: "ai-tries", min: "1", max: "5", value: String(st.max_attempts)});
+  const hours = el("input", {type: "number", id: "ai-hours", min: "0.5", max: "200", step: "0.5", value: String(st.max_gpu_hours)});
+  const msg = el("p", {class: "msg", role: "status"});
+  return el("section", {class: "card"}, ...head,
+    el("label", {style: "display:flex;gap:8px;align-items:center"}, auto, "Fix and rerun automatically when a job stops with an error in its code"),
+    el("p", {class: "small muted", text: "Off: you look at each fix and click Apply and rerun. On: GPU Relay applies the AI's fix and starts the job again by itself, within these limits."}),
+    el("div", {style: "display:flex;gap:12px;flex-wrap:wrap"},
+      field("ai-tries", "AI fixes per job", tries), field("ai-hours", "GPU hours for all attempts of a job", hours)),
+    el("div", {}, el("button", {class: "btn primary", type: "button", onclick: async () => {
+      try { await post("api/ai/settings", {auto: auto.checked, max_attempts: Number(tries.value), max_gpu_hours: Number(hours.value)}); msg.className = "msg good"; msg.textContent = "Saved."; }
+      catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+    }}, "Save")), msg);
 }
 async function desktopCard() {
   const d = await api("api/desktop/status");

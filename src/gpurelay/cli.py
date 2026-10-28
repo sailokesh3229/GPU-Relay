@@ -888,6 +888,57 @@ def serve(
 
 
 @app.command()
+def helper(
+    site: Annotated[
+        str | None, typer.Option("--site", help="Your GPU Relay website (saved for next time).")
+    ] = None,
+    key: Annotated[
+        str | None,
+        typer.Option(
+            "--key", help="Helper key from the website's setup page (saved in the OS keyring)."
+        ),
+    ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Claude model to use instead of the site's choice."),
+    ] = None,
+    once: Annotated[bool, typer.Option("--once", help="Check for one request and stop.")] = False,
+) -> None:
+    """Fix failed jobs with your own AI (Claude Code) for the website: keep it running."""
+    from gpurelay.aifix.helper import (
+        ENV_KEY,
+        KEY_SECRET,
+        SiteClient,
+        load_site,
+        run,
+        save_site,
+    )
+    from gpurelay.config import gpurelay_home
+    from gpurelay.credentials import get_secret, set_secret
+
+    home = gpurelay_home()
+    site = site or load_site(home)
+    if not site:
+        _fail(RuntimeError("give your website's address once: gpurelay helper --site "
+                           "https://<your-site> --key <key from its setup page>"))  # fmt: skip
+    if not site.startswith(("https://", "http://127.0.0.1", "http://localhost")):
+        _fail(RuntimeError("the site's address must start with https://"))
+    save_site(home, site)
+    if key:
+        if not set_secret(KEY_SECRET, key):
+            console.print(f"[yellow]no OS keyring here: pass --key each time or set {ENV_KEY}"
+                          "[/yellow]")  # fmt: skip
+    else:
+        key = get_secret(KEY_SECRET, env=ENV_KEY)
+    if not key:
+        _fail(RuntimeError("make a helper key on your website's setup page (AI auto-fix), then "
+                           "run: gpurelay helper --key <key>"))  # fmt: skip
+    code = run(SiteClient(site, key), model=model, once=once,
+               say=lambda text: console.print(text, markup=False, highlight=False))  # fmt: skip
+    raise typer.Exit(code)
+
+
+@app.command()
 def gateway(
     port: Annotated[int, typer.Option("--port", envvar="PORT", help="Port to listen on.")] = 7860,
     host: Annotated[str, typer.Option("--host", help="Interface to listen on.")] = "0.0.0.0",

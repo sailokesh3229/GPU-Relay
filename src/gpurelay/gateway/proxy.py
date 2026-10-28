@@ -76,7 +76,8 @@ def app_router(children: Children, client_factory: Any = None, max_jobs: int = 3
             return JSONResponse({"detail": str(exc)}, status_code=503)
         except GpuRelayError as exc:
             return JSONResponse({"detail": str(exc)}, status_code=502)
-        if request.method == "POST" and path == "api/submit":
+        new_job = path == "api/submit" or (path.startswith("api/jobs/") and path.endswith("/apply"))
+        if request.method == "POST" and new_job:  # a rerun with an AI fix is a new job too
             try:
                 in_flight = await run_in_threadpool(children.jobs_in_flight, user_id)
             except Exception:

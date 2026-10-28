@@ -180,6 +180,9 @@ class Job(_Model):
     prefer_backend: str | None = None
     accept_restart_only: bool = False
     bundle_hash: str | None = None
+    # A rerun with an AI fix (spec §20): the attempt it replaces and the fix it applies.
+    retry_of: str | None = None
+    fix_id: str | None = None
     # Controller bookkeeping (spec §13.5).
     infra_failures: int = 0
     message: str = ""

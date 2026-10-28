@@ -214,6 +214,54 @@ user's requests to it. The server never runs submitted code (only the static ana
 
 ---
 
+## After M5: errors, results and Colab (built)
+
+Confirmed with the owner while running their InfoVAE/CelebA notebook (2026-10-27/28).
+
+- **Faults before submit.** The analyzer's "Will fail as written" list (`google.colab`
+  imports, `/content/drive` paths, undefined names) shows in red on Submit (spec §14).
+- **Results on the job page.** A Results tab (default for finished jobs) shows each cell's
+  outputs, figures and errors from `output.ipynb`; the user never has to open the platform.
+- **Errors point at the line.** A failed job reads `cell N, line L: Type: message` (scripts:
+  `line L: ...`), from the deepest frame of the user's own code; the job page shows that code
+  with the line highlighted (spec §12.5).
+- **Colab in one click.** A launcher notebook in the public repo (`colab/open_job.ipynb`)
+  finds the user's waiting job; the job page, emails and opt-in browser notifications open it.
+  The user still picks a GPU and presses Run all (hard rule 2).
+- **Own resume logic.** A job that resumes itself (`range(start_epoch, ...)` from its own
+  checkpoint) is fast-forwarded by value, so no iteration is skipped or run twice (spec §7.3).
+
+---
+
+## AI fix (phases A1-A3, one at a time; the owner verifies each)
+
+Confirmed with the owner 2026-10-28. When a job fails because of the user's code, GPU Relay
+tells the user (email, browser notification) and the job page offers two choices:
+**Fix it with AI** or **Check it myself** (the highlighted line and traceback, as today).
+The AI is the user's own subscription (Claude Pro/Max, ChatGPT Plus/Pro), used through the
+providers' official command-line tools, so nobody buys API keys (spec §20).
+
+- **A1 Helper + "Fix it with AI"** (built 2026-10-28, `docs/progress.md`). `gpurelay helper` runs on the user's laptop, signs in to
+  their website account, and connects outward (no open ports). It finds the AI tools
+  installed there (Claude Code `claude -p`, later Codex CLI `codex exec`) and reports them to
+  the setup page ("Helper connected · Claude Code found"). On "Fix it with AI" it runs the
+  tool with the job's code, error, location and traceback in the prompt and no tools at all
+  (no files, no commands), and returns the change and a short explanation. The job page shows it as a before/after diff. Without a running helper
+  the button says how to start it. Setup gets an optional "AI auto-fix" step.
+- **A2 Apply and rerun** (built 2026-10-28). The user approves the diff; GPU Relay resubmits the fixed code as a
+  new attempt of the same job (the original stays in the history). Optional automatic
+  retries are off by default, with caps on attempts per job and GPU hours.
+- **A3 More providers + model choice** (built 2026-10-28; Codex not tried live). Codex CLI (ChatGPT sign-in), optionally Gemini CLI.
+  Simple faults (imports, typos, paths) go to a fast model; hard ones (shapes, NaN, out of
+  memory) to the strongest; a failed fix escalates to the stronger model, then the other
+  provider. GPU Relay records which model fixed which kind of error. Gemini CLI: not added
+  (no confirmed non-interactive, tool-free mode yet).
+
+Checks (spec §20.3, `docs/verify.md` #30-32): the Claude Code flags were confirmed with a
+real call; the terms for driving the user's own CLI stay a re-check item; Codex is open.
+
+---
+
 ## Phase checklist summary
 
 | Phase | Outcome | Key proof |
@@ -229,3 +277,4 @@ user's requests to it. The server never runs submitted code (only the static ana
 | 8 | Dashboard + hardening | README quick start works end to end |
 | 9 | Stretch features | per-feature tests |
 | M1-M5 | Multi-user website | two users never see each other's jobs or tokens |
+| A1-A3 | AI fix with the user's own subscription | a failing job is fixed and rerun after the user approves |

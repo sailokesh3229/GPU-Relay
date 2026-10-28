@@ -13,7 +13,8 @@ platform accounts, and relays their own jobs. Nobody sees anyone else's jobs or 
 | 4 | Modal account, **payment method**, token | optional | Add a payment method on modal.com (Modal starts GPUs only then; $30 free a month). Settings → API Tokens → New Token; paste the id and secret and confirm Modal's terms. Paid time only above your limit ($0 by default). |
 | 5 | Colab secret | optional | In Colab: key icon → add `GPURELAY_HF_TOKEN` with your Hugging Face token, allow notebook access. When a job needs Colab you get a notice and a notebook: open it, press Run all. |
 | 6 | Choices | defaults fine | Colab first or as a fallback, wait for Run all (30 min), paid limit ($0), Kaggle hours a week. |
-| 7 | Your job | required | A `.py` or `.ipynb` (+ `requirements.txt`). **Open my GPU Relay** → Submit; the resumability check runs first. |
+| 7 | AI auto-fix | optional | On your own computer: install Claude Code, run `claude` and `/login` with your Claude Pro or Max plan (no API key), install GPU Relay (`pip install "gpurelay @ git+https://github.com/sailokesh3229/GPU-Relay"`), make a helper key on **Set up** (step 6) and run the command it shows. A job that stops with an error in its code then offers **Fix it with AI** and **Apply and rerun**; you can also turn on automatic reruns there (limits: fixes per job, GPU hours). Claude Code gets the code and the error in its prompt and no tools: it cannot open files or run commands. Optional: Codex (`npm install -g @openai/codex`, `codex login` with a ChatGPT plan) runs in its read-only sandbox. |
+| 8 | Your job | required | A `.py` or `.ipynb` (+ `requirements.txt`). **Open my GPU Relay** → Submit; the resumability check runs first. |
 
 Moving from the single-owner server: sign up, connect the **same** Hugging Face repo
 (`gpurelay-store`) and Kaggle account. Your GPU Relay restores your jobs from the backup in
@@ -51,6 +52,7 @@ The server needs **no** platform tokens of its own. Delete old `HF_TOKEN`,
   environment built from an allowlist (`gateway/userenv.py`): never the server's database URL
   or keys. It starts on a visit, and at site start for users with jobs in flight; it stops
   when idle, never while a job is unfinished. State is backed up to the user's own repo.
+- **AI helper** (`gateway/helper_routes.py`, `aifix/`): a user's helper on their laptop asks `/helper/v1/poll` with their helper key (only its hash is stored) for fix requests, and posts answers to `/helper/v1/fixes/<id>`; both go to that user's GPU Relay, which re-checks each answer. Polls never start a stopped GPU Relay.
 - **No code runs on the server**: submitted jobs run only on the user's Kaggle, Modal or
   Colab; the server only reads code for the resumability check.
 

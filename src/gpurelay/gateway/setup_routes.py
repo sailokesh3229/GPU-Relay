@@ -53,6 +53,12 @@ class LimitsForm(BaseModel):
     kaggle_weekly_hours: float | None = Field(default=None, ge=0, le=168)
 
 
+class AiFixForm(BaseModel):
+    auto: bool = False
+    max_attempts: int = Field(default=2, ge=1, le=5)
+    max_gpu_hours: float = Field(default=6.0, gt=0, le=200)
+
+
 class RemoveForm(BaseModel):
     name: str = Field(pattern="^(hf|kaggle|modal)$")
 
@@ -118,6 +124,8 @@ def setup_router(
                       "saved_at": saved.get(MODAL_SECRET)},
             "colab": {"enabled": colab.enabled, "first": colab.first,
                       "wait_min": colab.wait_s // 60},
+            "aifix": {"auto": config.aifix.auto, "max_attempts": config.aifix.max_attempts,
+                      "max_gpu_hours": config.aifix.max_gpu_hours},
         }  # fmt: skip
         unreadable = spaces.unreadable(uid)
         return {"steps": steps, "ready": spaces.ready(uid), "accelerators": ACCELERATORS,
@@ -185,6 +193,18 @@ def setup_router(
             config.backends.modal.monthly_paid_cap_usd = form.modal_paid_cap_usd
             if form.kaggle_weekly_hours is not None:
                 config.backends.kaggle.weekly_gpu_hours = form.kaggle_weekly_hours
+            spaces.save_config(uid, config)
+            return {}
+
+        return await guarded(request, work)
+
+    @router.post("/api/setup/aifix")
+    async def setup_aifix(form: AiFixForm, request: Request) -> Any:
+        def work(uid: str) -> dict[str, Any]:
+            config = spaces.config(uid)
+            config.aifix.auto = form.auto
+            config.aifix.max_attempts = form.max_attempts
+            config.aifix.max_gpu_hours = form.max_gpu_hours
             spaces.save_config(uid, config)
             return {}
 

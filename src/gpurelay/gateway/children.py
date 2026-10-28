@@ -210,8 +210,12 @@ class Children:
                         self._start(child.user_id)
                 continue
             try:
-                jobs = self.get_json(child.url + "/api/overview", child.key)["jobs"]
-                active = any(j.get("state") not in NOT_ACTIVE for j in jobs)
+                overview = self.get_json(child.url + "/api/overview", child.key)
+                jobs = overview["jobs"]
+                # An AI fix being worked on or an automatic rerun to make also needs it.
+                active = any(j.get("state") not in NOT_ACTIVE for j in jobs) or bool(
+                    overview.get("ai_busy")
+                )
             except Exception:
                 continue  # busy or starting: decide next time
             if self.on_jobs is not None:

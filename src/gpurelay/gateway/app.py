@@ -41,6 +41,7 @@ from gpurelay.dashboard.auth import RateLimiter
 from gpurelay.errors import ConfigError
 from gpurelay.gateway.account_routes import account_router, send_verification
 from gpurelay.gateway.children import Children
+from gpurelay.gateway.helper_routes import HELPER_PREFIX, helper_router
 from gpurelay.gateway.mail import Mailer
 from gpurelay.gateway.notices import Notices
 from gpurelay.gateway.space import UserSpaces
@@ -193,7 +194,9 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
             user = request.state.user = current_user(request)
             path = request.url.path
             is_api = path.startswith(("/api/", "/app/api/"))
-            if user is None and path not in PUBLIC_PATHS:
+            if path.startswith(HELPER_PREFIX):
+                response = await call_next(request)  # the helper's key, not a cookie
+            elif user is None and path not in PUBLIC_PATHS:
                 if is_api:
                     response = JSONResponse({"detail": "sign in first"}, status_code=401)
                 else:
@@ -351,5 +354,6 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
         from gpurelay.gateway.proxy import app_router
 
         app.include_router(app_router(children, settings.proxy_client, settings.max_jobs))
+        app.include_router(helper_router(store, children, settings.proxy_client))
 
     return app

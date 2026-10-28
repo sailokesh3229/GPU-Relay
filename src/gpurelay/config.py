@@ -289,6 +289,17 @@ class NotifySettings(_Section):
     ntfy_topic: str | None = None
 
 
+class AiFixSettings(_Section):
+    """Fix it with AI (spec §20): automatic reruns (A2) and the models tried (A3)."""
+
+    auto: bool = False  # fix and rerun failed jobs without asking (off: the user approves)
+    max_attempts: int = Field(default=2, ge=1, le=5)  # AI fixes per original job
+    max_gpu_hours: float = Field(default=6.0, gt=0, le=200)  # all attempts of a job together
+    claude_fast: str = "sonnet"  # Claude Code model aliases (`claude --model`)
+    claude_strong: str = "opus"
+    codex_model: str | None = None  # None: Codex's recommended model
+
+
 class Config(_Section):
     """Top-level configuration."""
 
@@ -298,6 +309,7 @@ class Config(_Section):
     storage: StorageSettings = Field(default_factory=StorageSettings)
     backends: BackendsSettings = Field(default_factory=BackendsSettings)
     notify: NotifySettings = Field(default_factory=NotifySettings)
+    aifix: AiFixSettings = Field(default_factory=AiFixSettings)
 
 
 # ====================================================================== paths

@@ -19,7 +19,8 @@ MESSAGES = {
     "awaiting_user": ("needs you on Colab", "Open it in Colab with this link, choose a GPU "
                       f"(Runtime > Change runtime type) and press Run all:\n{COLAB_LAUNCHER_URL}"),
     "completed": ("finished", "Its outputs are ready in your GPU Relay."),
-    "failed_user": ("stopped with an error in the script", "The job page shows the error."),
+    "failed_user": ("stopped with an error in the script", "The job page shows where it failed. "
+                    "Check it yourself there, or click Fix it with AI."),
     "failed_infra": ("failed on the platforms", "The job page shows what happened; you can "
                      "retry it there."),
 }  # fmt: skip

@@ -44,7 +44,8 @@ These come from platform terms and must be enforced in code and docs. **Do not i
 
 ## 4. Non-goals (v1)
 
-- Multi-user / hosted SaaS. (Design for one user; keep interfaces clean so multi-user is possible later.)
+- ~~Multi-user / hosted SaaS.~~ Since added as the multi-user website (plan.md M1-M5,
+  `docs/multi-user.md`): each user's tokens, controller and storage stay their own.
 - Process-level snapshots (CRIU, cuda-checkpoint): free notebook containers don't grant the privileges, and snapshots don't restore across GPU models.
 - Multi-GPU / distributed training across backends.
 - Bit-identical results across different GPU models (documented as "numerically equivalent").
@@ -138,6 +139,12 @@ For scripts and for long notebook cells:
 - **v1 scope:** the outermost `for` loop of each long-running top-level block (script top level or cell top level). Nested-loop safe points are a later phase.
 - Transform `for x in ITER:` → `for x in __relay__.loop("<loop_id>", ITER):` where `loop_id` is a stable hash of file + line + source of the loop header.
 - `__relay__.loop` yields items, counts completed iterations, offers a **safe point at the end of each iteration**, and on resume **fast-forwards**: for `range`/`enumerate(range)`/sequences it slices; for general iterators it consumes and discards items (data loading cost only; logged).
+- **Jobs with their own resume logic.** A loop over a `range` whose start the job moves on
+  resume (`range(start_epoch, ...)` read from its own checkpoint file, which the restored
+  working files bring back) is fast-forwarded **by value**, not by count: GPU Relay records
+  each range's first start and step, and aligns the new range to them, so no iteration is
+  skipped or run twice. A range that cannot be aligned (another step) stops the job as
+  non-resumable instead of guessing.
 - **Variables to snapshot** at that safe point: names assigned or mutated inside the loop body (assignments, augmented assignments, `.append/.extend/.update/...` calls, subscript assignment), plus all torch/tf stateful objects in the namespace (modules, optimizers, schedulers, GradScaler, EMA objects).
 - `while` loops, loops inside functions, generators, and comprehensions are **not** instrumented in v1 → reported by the analyzer.
 
@@ -260,6 +267,16 @@ Like Local, plus fault injection: hard kill (`SIGKILL`) at a given time or rando
 - The controller **notifies** the user ("Kaggle budget exhausted; job X can continue on Colab — open resume_X.ipynb and press Run All") and marks the segment `awaiting_user`.
 - Deadline: Colab limits are unpublished and fluctuate; use conservative `max_session_s` (default 10 h, `# VERIFY:`) for handoff and rely on periodic checkpoints for surprise disconnects.
 - No automation of any kind beyond generating the notebook and detecting progress via `status.json`.
+- **One-click launcher.** Each waiting job's notebook is uploaded to the user's storage
+  (`jobs/<id>/colab/resume.ipynb`) beside `manual_session.json`. A fixed launcher notebook in
+  the public repo (`colab/open_job.ipynb`, opened through `colab.research.google.com/github/...`)
+  reads the storage token from Colab secrets, finds the newest waiting job and runs its
+  notebook. The job page's **Open in Colab** button, job emails and browser notifications
+  (opt-in; a click opens the launcher) all link there. The user still chooses the GPU and
+  presses Run all.
+- **Colab first (optional).** `colab.first` offers Colab before the automated backends;
+  if nobody starts it within `colab.wait_s` (default 30 min) the job is withdrawn from Colab
+  and continues on the next backend.
 
 ### 10.6 Lightning AI backend (later, gated)
 Disabled until ToS and official SDK are verified (hard rule 4). Expected budget per third-party guides: ~80 GPU-h/month (`# VERIFY:`).
@@ -325,7 +342,7 @@ Heartbeat every 60 s. The controller treats a stale heartbeat (> 5 min) with a f
 Knows `deadline = session_start + max_session_s`. Requests handoff when the forced-checkpoint condition (8.2) holds. Also handles `SIGTERM`/`SIGINT`: request checkpoint at next safe point if time allows, else exit.
 
 ### 12.5 User-code errors
-An exception raised by user code is `failed_user`: stop the job, keep checkpoints, report traceback (with original line numbers). Do not burn quota retrying. `CUDA out of memory` is reported with suggestions (smaller batch, AMP) and is not auto-retried unless the next backend has a larger GPU.
+An exception raised by user code is `failed_user`: stop the job, keep checkpoints, report traceback (with original line numbers). The status message names **where it failed in the user's code**: `cell N, line L: Type: message` for notebooks (code cells counted from 1, the deepest frame in any of the user's cells, so an error inside a function defined in another cell points at that cell) and `line L: Type: message` for scripts; GPU Relay's own frames are never named. The job page shows that part of the code with the failing line highlighted, and the Results tab shows every cell's outputs, figures and errors, so the user never has to open the platform to see what happened. The job page then offers **Check it myself** or **Fix it with AI** (§20). Do not burn quota retrying. `CUDA out of memory` is reported with suggestions (smaller batch, AMP) and is not auto-retried unless the next backend has a larger GPU.
 
 ---
 
@@ -359,6 +376,8 @@ Side states: `awaiting_user` (Colab), `waiting_for_quota`, `paused` (user), `fai
 ### 13.6 Notifications
 Desktop notification (`plyer` or OS-native) + optional `ntfy.sh` topic. Events: needs Colab action, job completed, job failed, waiting for quota, budget low (< 10%).
 
+On the website: emails (when the site sends mail and the user's address is verified) for needs Colab, completed, failed with an error in the code, and failed on the platforms; browser notifications (opt-in, while a GPU Relay tab is open) for needs Colab and failed jobs. A Colab notice opens the launcher (§10.5); a failure notice opens the job page with its two choices (§12.5).
+
 ---
 
 ## 14. Analyzer (`gpurelay analyze`)
@@ -369,6 +388,9 @@ Static AST analysis (and optional quick dry-run with `--probe` that runs the fir
 - **Risks:** unpicklable objects likely in loop state; side-effectful cells (downloads, deletes, writes outside working dir); nondeterminism (`cudnn.benchmark=True`, unseeded RNGs); safe-point gaps longer than `max_lost_work`; `while` loops / loops inside functions not instrumented.
 - **GPU-time savings suggestions** (never applied automatically in v1): mixed precision if no `autocast`/`amp`; `DataLoader(num_workers=0)`; `pin_memory`; recomputing features (e.g. Inception features for FID) that could be cached; evaluation every step.
 - **Environment:** imports without matching entries in requirements.
+- **Will fail as written:** faults that stop the job on any platform but one: `google.colab`
+  imports, `/content/drive` paths, names used but never defined (skipped after a star import).
+  Shown in red on Submit, before any GPU time is spent.
 
 Output: human-readable (rich) + `analysis.json`.
 
@@ -446,3 +468,79 @@ gpurelay/
 ## 19. Future work (post-v1)
 
 Chunk-parallel execution of independent loops across backends (`relay.chunks(..., parallel=True)` or analyzer-proven independence) · nested-loop and mid-epoch DataLoader safe points · instrumentation of `while` loops and loops in functions · Lightning AI backend (after verification) · Google Drive storage · web dashboard improvements · controller hosted on an always-on small free CPU VM so handoffs continue while the laptop sleeps · multi-user mode · paid backends.
+
+---
+
+## 20. AI fix with the user's own subscription (plan.md A1-A3)
+
+Confirmed with the owner 2026-10-28; A1-A3 built 2026-10-28 (`docs/progress.md`).
+
+### 20.1 Flow
+1. A job fails with an error in the user's code (`failed_user`). GPU Relay already has the
+   error, its location (§12.5), the code and the traceback.
+2. The user is told (email, browser notification). The job page offers **Check it myself**
+   (the highlighted line and traceback) or **Fix it with AI**.
+3. **Fix it with AI** sends the error, location, the end of the log and every code cell to
+   the user's AI tool. The proposed change comes back as an explanation and a before/after
+   diff per cell, with a copy button.
+4. **Apply and rerun** submits the job's bundle with the changed cells (or script) as a new
+   job: the same other files, requirements, data as already staged, priority, platform choice
+   and paid limit, named `<name> · fix N`, linked to the attempt it replaces (`Job.retry_of`,
+   `Job.fix_id`). It starts from the beginning: the failed attempt's checkpoints belong to the
+   old code. The failed job stays as it was. On the website it counts toward the user's job
+   limit.
+5. **Automatic reruns** (`[aifix] auto`, off by default; desktop: Settings, website: setup step
+   6): a job that failed in its code within the last 24 h gets a fix request and, when the AI
+   proposes a change, a rerun with it. At most `max_attempts` fixes per original job (default
+   2) and `max_gpu_hours` for all its attempts together (default 6). A failed fix request
+   stops the chain for the user to look at. The web app checks every 10 s (on each overview
+   request); on the website a user's GPU Relay stays running while AI work is pending
+   (`ai_busy` in the overview).
+6. **What a rerun showed** is recorded when it ends: `fixed` (it finished, or got past that
+   error), `not_fixed` (the same error at the same place), `unknown` (stopped otherwise). The
+   job page says so next to the applied fix.
+
+### 20.2 Which AI
+- The user's own **subscription**, not API keys: Claude Pro/Max through **Claude Code**
+  (`claude -p`), ChatGPT Plus/Pro through **Codex CLI** signed in with ChatGPT (`codex exec`).
+  The chat apps (Claude desktop, ChatGPT desktop) cannot be driven by another program and are
+  never automated through their UI.
+- On the user's own computer (desktop app, `gpurelay dashboard`) GPU Relay runs the tools
+  itself. The website cannot reach the user's laptop, so a **helper** (`gpurelay helper`)
+  runs there with a helper key from setup step 6 (shown once, only its hash kept), connecting
+  outward only and asking for work every 5 s; its polls never start the user's GPU Relay. It
+  reports which tools are installed and signed in (version and plan, never the account's
+  email); the setup page shows them. The browser cannot detect installed apps.
+- GPU Relay never sees the user's AI login; the tool uses the user's own plan and its limits.
+- **Model choice** (`aifix/choice.py`): each request carries a plan, the tools and models to
+  try in order. Simple faults (`NameError`, `ImportError`, `SyntaxError`, `AttributeError`,
+  `KeyError`, `FileNotFoundError`, ...) go to Claude's fast model (`claude_fast`, default
+  `sonnet`), then the strongest (`claude_strong`, `opus`), then Codex; hard ones (shapes,
+  NaN, out of memory, anything else) go to `opus`, then Codex, then `sonnet`. Only signed-in
+  tools are used (before a helper reports, Claude Code is assumed).
+- **Escalation**: each earlier fix in the same chain of attempts (its rerun failed, or the
+  user asked again) moves the plan one step on. **Fallback**: a step that fails (usage
+  limit, no answer, tool missing) hands over to the next in the same request.
+- **Learning**: outcomes are counted per kind of error and tool/model
+  (`aifix/stats.json`); after 3 tries, the one that fixes that kind most often (and better
+  than the others) goes first.
+- API keys stored in the vault may come later, for users without a laptop running the helper.
+
+### 20.3 Limits and safety
+- The AI can be wrong: the user approves every change unless they turned automatic reruns on.
+- **Claude Code gets no tools at all** (`--tools ""`): the code is in the prompt and it
+  answers JSON (an explanation and the full new source of each changed cell), checked
+  against a schema and again by GPU Relay against the code it sent (only each change's cell
+  and new source are taken). It runs in an empty temporary folder, with `--safe-mode`, no MCP
+  servers, no saved session, and without GPU Relay's tokens in its environment.
+- **Codex** has no documented way to turn its tools off: it runs `codex exec` in its
+  read-only sandbox (it can run commands that read, never write; network off by default),
+  `--ephemeral`, with `--output-schema`, in an empty folder, without GPU Relay's tokens.
+  That is why Claude Code comes first in every plan.
+- Code goes to a provider only when the user clicks **Fix it with AI**, or for automatic
+  reruns they turned on.
+- Each rerun uses GPU quota and the user's AI plan usage; reruns are capped (20.1 step 5).
+- Some failures (out of GPU memory) are fixed by settings, not code; the AI may suggest those.
+- Recorded in `docs/verify.md` (#30-32): the terms for driving the user's own CLI (re-check),
+  the Claude Code flags (checked with 2.1.312), the Codex flags (from OpenAI's docs; not run
+  here: Codex is not installed on the owner's laptop).
