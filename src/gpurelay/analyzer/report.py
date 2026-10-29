@@ -1,8 +1,12 @@
-"""Human-readable rendering of an :class:`~gpurelay.analyzer.static.Analysis` (rich)."""
+"""Human-readable rendering of an :class:`~gpurelay.analyzer.static.Analysis` (rich).
+
+Everything that comes from the job (paths, its code, messages that quote it or config keys
+like ``[runtime]``) is escaped: rich would read ``[...]`` as markup and drop it."""
 
 from __future__ import annotations
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from gpurelay.analyzer.probe import ProbeResult
@@ -34,7 +38,8 @@ def _where(cell: int | None, line: int | None) -> str:
 def render(analysis: Analysis, console: Console) -> None:
     color = _COLORS[analysis.overall]
     console.print(
-        f"[bold]{analysis.path}[/bold]: [{color} bold]{analysis.overall.value}[/{color} bold]"
+        f"[bold]{escape(str(analysis.path))}[/bold]: "
+        f"[{color} bold]{analysis.overall.value}[/{color} bold]"
         f" - {_EXPLAIN[analysis.overall]}"
     )
     if analysis.blocks:
@@ -46,9 +51,10 @@ def render(analysis: Analysis, console: Console) -> None:
         for block in analysis.blocks:
             c = _COLORS[block.level]
             details = [
-                f"{'+' if loop['safe_points'] else '-'} line {loop['line']}: {loop['header']}"
+                f"{'+' if loop['safe_points'] else '-'} line {loop['line']}: "
+                f"{escape(str(loop['header']))}"
                 for loop in block.loops
-            ] + block.notes
+            ] + [escape(note) for note in block.notes]
             where = (
                 f"cell {block.cell}"
                 if block.cell is not None
@@ -57,7 +63,7 @@ def render(analysis: Analysis, console: Console) -> None:
             table.add_row(
                 where,
                 f"[{c}]{block.level.value}[/{c}]",
-                ", ".join(block.covered_by) or "-",
+                escape(", ".join(block.covered_by)) or "-",
                 "\n".join(details),
             )
         console.print(table)
@@ -71,26 +77,26 @@ def render(analysis: Analysis, console: Console) -> None:
         verdict = {True: "hook supported", False: "hook NOT supported", None: "verify on backend"}[
             info["hook_supported"]
         ]
-        console.print(f"framework [bold]{fw}[/bold]: {installed} ({verdict})")
+        console.print(f"framework [bold]{escape(fw)}[/bold]: {escape(str(installed))} ({verdict})")
     if analysis.errors:
         console.print("[bold red]Will fail as written[/bold red]")
         for error in analysis.errors:
-            console.print(f"  [red]x[/red] {_where(error.cell, error.line)}{error.message}")
+            console.print(f"  [red]x[/red] {_where(error.cell, error.line)}{escape(error.message)}")
     if analysis.risks:
         console.print("[bold]Risks[/bold]")
         for risk in analysis.risks:
             where = _where(risk.cell, risk.line)
-            console.print(f"  [yellow]![/yellow] {where}{risk.message}")
+            console.print(f"  [yellow]![/yellow] {where}{escape(risk.message)}")
     if analysis.suggestions:
         console.print("[bold]GPU-time suggestions[/bold] (not applied automatically)")
         for tip in analysis.suggestions:
             where = _where(tip.cell, tip.line)
-            console.print(f"  [cyan]*[/cyan] {where}{tip.message}")
+            console.print(f"  [cyan]*[/cyan] {where}{escape(tip.message)}")
     missing = analysis.environment.get("missing_from_requirements")
     if missing:
         console.print(
             f"[bold]Environment[/bold]: imports missing from "
-            f"{analysis.environment['requirements']}: {', '.join(missing)}"
+            f"{escape(str(analysis.environment['requirements']))}: {escape(', '.join(missing))}"
         )
 
 
@@ -103,8 +109,8 @@ def render_probe(result: ProbeResult, console: Console) -> None:
     def h(value: float | None) -> str:
         return "-" if value is None else format_duration(value * 3600)
 
-    table.add_row("ran", f"{format_duration(result.seconds)}, {result.ended}")
-    table.add_row("device", result.device)
+    table.add_row("ran", f"{format_duration(result.seconds)}, {escape(result.ended)}")
+    table.add_row("device", escape(result.device))
     startup = "-" if result.startup_s is None else format_duration(result.startup_s)
     table.add_row("startup", f"{startup} until the first loop progress")
     if result.completed is not None:

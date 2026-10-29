@@ -7,6 +7,7 @@ Delivery failures are logged, never raised.
 from __future__ import annotations
 
 import importlib.util
+import json
 import logging
 import urllib.request
 from collections.abc import Callable
@@ -53,11 +54,18 @@ class Notifier:
             log.debug("desktop notification failed: %s", exc)
 
     def _ntfy(self, note: Notification) -> None:
-        url = f"{NTFY_URL}/{self.settings.ntfy_topic}"
-        headers = {"Title": f"GPU Relay: {note.title}", "Tags": note.kind}
+        # JSON publishing (POST to the root URL): the title can hold any text (a job named in
+        # Telugu or with an emoji), which HTTP headers (Latin-1 only) cannot carry.
+        payload = {
+            "topic": self.settings.ntfy_topic,
+            "title": f"GPU Relay: {note.title}",
+            "message": note.message,
+            "tags": [note.kind],
+        }
+        body = json.dumps(payload).encode("utf-8")
         try:
             post = self._post or _http_post
-            post(url, note.message.encode("utf-8"), headers)
+            post(NTFY_URL, body, {"Content-Type": "application/json"})
         except Exception as exc:
             log.warning("ntfy notification failed: %s", exc)
 

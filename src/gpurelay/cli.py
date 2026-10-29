@@ -22,6 +22,7 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
 )
 console = Console(stderr=True)
+PREFIX = escape("[gpurelay]")  # rich would read a bare "[gpurelay]" as a style and drop it
 
 
 def _version_callback(value: bool) -> None:
@@ -447,7 +448,10 @@ def up(
                     ) from exc
                 except GpuRelayError as exc:
                     public = False
-                    console.print(f"[yellow]could not check the store's visibility: {exc}[/yellow]")
+                    console.print(
+                        "[yellow]could not check the store's visibility: "
+                        f"{escape(str(exc))}[/yellow]"
+                    )
                 if public:
                     raise HardRuleViolation(
                         "the storage repo is PUBLIC: your code, data and checkpoints would be "
@@ -696,7 +700,7 @@ def run_local(
     from gpurelay.models import ResumabilityLevel
 
     analysis = analyze_path(path)
-    console.print(f"[cyan][gpurelay] resumability: {analysis.overall.value}[/cyan]")
+    console.print(f"[cyan]{PREFIX} resumability: {analysis.overall.value}[/cyan]")
     if analysis.overall is ResumabilityLevel.RESTART_ONLY and not accept_restart_only:
         console.print(
             "[red]this job has no safe points: any interruption restarts it from scratch. "
@@ -741,7 +745,7 @@ def run_local(
 
     def on_segment(record: SegmentRecord) -> None:
         console.print(
-            f"[cyan][gpurelay] segment {record.segment_id}: {record.outcome} "
+            f"[cyan]{PREFIX} segment {record.segment_id}: {record.outcome} "
             f"after {format_duration(record.duration_s)} "
             f"(committed checkpoint: {record.committed_seq_after})[/cyan]"
         )
@@ -750,7 +754,7 @@ def run_local(
         sys.stdout.write(text)
         sys.stdout.flush()
 
-    console.print(f"[cyan][gpurelay] job {job_id} -> {run_dir}[/cyan]")
+    console.print(f"[cyan]{PREFIX} job {job_id} -> {escape(str(run_dir))}[/cyan]")
     result = run_local_job(
         path,
         storage=storage,
@@ -762,11 +766,11 @@ def run_local(
     )
     if result.state is JobState.COMPLETED:
         console.print(
-            f"[green][gpurelay] completed in {len(result.segments)} segment(s); "
-            f"outputs: {run_dir / 'final'}[/green]"
+            f"[green]{PREFIX} completed in {len(result.segments)} segment(s); "
+            f"outputs: {escape(str(run_dir / 'final'))}[/green]"
         )
         return
-    console.print(f"[red][gpurelay] {result.state.value}: {result.message}[/red]")
+    console.print(f"[red]{PREFIX} {result.state.value}: {escape(result.message)}[/red]")
     raise typer.Exit(code=1)
 
 

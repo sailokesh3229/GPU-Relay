@@ -19,7 +19,7 @@ from gpurelay.models import DataSpec, Job, JobKind, JobState, SegmentState
 from gpurelay.pathutil import safe_join
 from gpurelay.runtime.checkpoint import load_latest_checkpoint, read_latest_meta
 from gpurelay.storage.base import Storage
-from gpurelay.storage.layout import final_prefix, latest_key, segment_log_key
+from gpurelay.storage.layout import control_key, final_prefix, latest_key, segment_log_key
 from gpurelay.storage.localfs import LocalFSStorage
 
 
@@ -178,6 +178,13 @@ def request(ctx: Context, ref: str, action: str) -> Job:
     retry = action == "resume" and job.state is JobState.FAILED_INFRA
     if job.state.is_terminal and not retry:
         raise ServiceError(f"{job.id} is {job.state.value}")
+    if action == "resume" and job.requested == "pause" and job.state is not JobState.PAUSED:
+        # A pause not applied yet: withdraw it (and the handoff it may have asked for).
+        ctx.storage.delete(control_key(job.id))
+        job = job.model_copy(update={"requested": None})
+        ctx.db.put_job(job)
+        ctx.db.add_event("request_resume", "pause withdrawn", now=time.time(), job_id=job.id)
+        return job
     if action == "resume" and job.state not in (JobState.PAUSED, JobState.FAILED_INFRA):
         raise ServiceError(f"{job.id} is not paused ({job.state.value})")
     job = job.model_copy(update={"requested": action})

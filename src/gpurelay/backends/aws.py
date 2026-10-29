@@ -118,7 +118,7 @@ class AwsProvider:
             if "InvalidInstanceID.NotFound" in str(exc):
                 return Machine(machine_id, "", GONE)
             raise
-        return found[0] if found else Machine(machine_id, "", GONE)
+        return next((m for m in found if m.id == machine_id), Machine(machine_id, "", GONE))
 
     def delete(self, machine_id: str) -> None:
         try:

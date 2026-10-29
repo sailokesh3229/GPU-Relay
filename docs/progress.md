@@ -1491,3 +1491,43 @@ None has started a real machine.
 - `gpurelay reset-link <email or username> --site <url>`, run with the site's
   `DATABASE_URL`, prints a one-time reset link (one hour), the same kind "forgot password"
   emails: an owner can let someone back in without email. Test in `test_cli.py`.
+
+## Backend test campaign (2026-10-29)
+
+Each backend piece tested on its own (coverage run first to find the gaps), the database on
+both of its engines, the command line and the website end to end on this laptop.
+
+- **New tests:**
+  - `test_setup_worker.py` (6): the website's real token checks, each step and its refusals
+    (0 % covered before);
+  - `test_store_backends.py` (4 x 2): the account store on SQLite and on **real
+    PostgreSQL** (run in WSL with `pgserver`, and now in CI as `test-postgres`): accounts,
+    duplicates, sign-in, sealed secrets, settings, one-time links, deleting a user;
+  - `test_db_more.py` (2): two processes writing the job database at once (WAL, busy
+    timeout: no "database is locked"), a failed migration rolled back whole;
+  - `test_notify.py` (4), `test_credentials.py` (5), `test_cloud_providers_more.py` (4:
+    AWS, Azure, Google Cloud states, own machines, logs, prices, credit), `test_report.py`.
+- **Bugs found and fixed:**
+  - `gpurelay analyze`, `status`, `run-local`: text in square brackets vanished (rich read it
+    as markup): the hint "set `instrument_functions = true` under [runtime]" lost
+    "[runtime]", job names like "eval [v2]" lost "[v2]", error messages lost "['a']", and
+    `run-local`'s own "[gpurelay]" prefix disappeared. All job text is escaped now.
+  - ntfy notifications with a non-Latin title (a job named in Telugu or with an emoji) were
+    dropped: HTTP headers are Latin-1 only. They are published as JSON now.
+  - "Resume" right after "Pause", before the controller acted, was refused and the job was
+    paused later anyway; it now withdraws the pending pause (and its handoff request).
+  - AWS: `machine()` now picks the asked-for instance by id; `status` shows a paid
+    platform's credit ("$12.50 (est.)") instead of "0.0h monthly", and "-" instead of
+    "None" for a segment without an earlier checkpoint.
+- **End to end on this laptop:** a real `gpurelay gateway` on SQLite, driven over HTTP:
+  sign-up, the platform questions (also from `/app/`), saving answers and a key, turning a
+  paid platform on, setup status, sign-out, wrong and right passwords, a cross-site post
+  refused (403), and `gpurelay reset-link` followed by a password change on the reset page
+  (link used once; old password refused). The CLI from `init --local` through `submit`,
+  `status`, `pause`/`resume`/`cancel`, `up`, `logs`, `fetch` and `export-state` /
+  `import-state`. A paid platform turned on with a fake key: free time was still used
+  first, and the 401s were logged and did not stop the controller.
+- **Live endpoints, without keys:** see `docs/verify.md` (after the table).
+- **Checks:** 698 unit tests pass (4 PostgreSQL ones skipped on Windows, passing in WSL and
+  CI); the full integration suite passes, **61 of 61** in one 26-minute run on the loaded
+  laptop; ruff, ruff format and mypy (Windows and Linux) clean.

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from gpurelay.controller.credits import card_spent_this_month
@@ -69,6 +70,10 @@ class BackendRow:
     credit_as_of: datetime | None = None
     use_credits: bool = True
     paid_only: bool = False  # a paid platform of the user's: no free hours (spec §21)
+
+
+def _seq(seq: int | None) -> str:
+    return "-" if seq is None else str(seq)
 
 
 def _utc(ts: float) -> datetime:
@@ -198,16 +203,16 @@ def render_status(console: Console, controller: Controller, now: float) -> None:
     for row in job_rows(controller, now):
         color = _STATE_COLORS.get(row.job.state, "white")
         eta = "-" if row.eta_h is None else f"~{row.eta_h:.2f}h ({row.eta_basis})"
-        jobs.add_row(
+        jobs.add_row(  # names and messages come from the job: never read as markup
             row.job.id,
-            row.job.name,
+            escape(row.job.name),
             f"[{color}]{row.job.state.value}[/{color}]",
-            row.backend,
-            row.progress,
+            escape(row.backend),
+            escape(row.progress),
             format_duration(row.used_h * 3600),
-            eta,
+            escape(eta),
             str(row.segments),
-            row.job.message,
+            escape(row.job.message),
         )
     console.print(jobs)
 
@@ -224,14 +229,20 @@ def render_status(console: Console, controller: Controller, now: float) -> None:
     ):
         backends.add_column(column)
     for b in backend_rows(controller, now):
+        budget, remaining, reset = b.budget, b.remaining, _fmt_time(b.next_reset)
+        if b.paid_only:  # the user's paid platform: no free hours, only their credit
+            budget, reset = "your credit", "-"
+            remaining = ("not entered" if b.credit_left_usd is None else
+                         f"${b.credit_left_usd:.2f}" + (" (est.)" if b.credit_source != "platform"
+                                                       else ""))  # fmt: skip
         backends.add_row(
-            b.name,
+            escape(b.name),
             "automated" if b.automated else "manual",
-            b.gpu or "-",
-            b.budget,
+            escape(b.gpu or "-"),
+            escape(budget),
             f"{b.used_h:.2f}h",
-            b.remaining,
-            _fmt_time(b.next_reset),
+            escape(remaining),
+            reset,
             f"{b.running}/{b.max_concurrent}",
         )
     console.print(backends)
@@ -239,9 +250,13 @@ def render_status(console: Console, controller: Controller, now: float) -> None:
 
 def render_job(console: Console, controller: Controller, job: Job, now: float) -> None:
     row = next(r for r in job_rows(controller, now) if r.job.id == job.id)
-    console.print(f"[bold]{job.id}[/bold] {job.name} - {job.state.value}  {job.message}")
+    console.print(
+        f"[bold]{job.id}[/bold] {escape(job.name)} - {job.state.value}  {escape(job.message)}"
+    )
     used = format_duration(row.used_h * 3600)
-    console.print(f"progress {row.progress}, {used} GPU time used, {row.segments} segment(s)")
+    console.print(
+        f"progress {escape(row.progress)}, {used} GPU time used, {row.segments} segment(s)"
+    )
     if not job.state.is_terminal:
         console.print(fit_message(row.eta_h, budget_lines(controller, now)))
     table = Table(show_header=True, header_style="bold")
@@ -253,11 +268,11 @@ def render_job(console: Console, controller: Controller, job: Job, now: float) -
         table.add_row(
             str(seg.index),
             seg.id,
-            seg.backend,
-            seg.gpu_model or "-",
+            escape(seg.backend),
+            escape(seg.gpu_model or "-"),
             seg.state.value,
             format_duration(duration),
-            f"{seg.start_checkpoint_seq} -> {seg.end_checkpoint_seq}",
-            seg.message,
+            f"{_seq(seg.start_checkpoint_seq)} -> {_seq(seg.end_checkpoint_seq)}",
+            escape(seg.message),
         )
     console.print(table)

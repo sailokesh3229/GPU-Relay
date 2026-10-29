@@ -557,3 +557,29 @@ def test_resume_retries_a_platform_failure_but_not_a_code_failure(tmp_path: Path
     retried = h.job(infra.id)
     assert retried.state in (JobState.QUEUED, JobState.RUNNING) and retried.infra_failures == 0
     assert h.job(user.id).state is JobState.FAILED_USER
+
+
+def test_resume_withdraws_a_pause_that_was_not_applied_yet(tmp_path: Path) -> None:
+    from gpurelay.controller.service import Context, request
+
+    h = _harness(tmp_path, {"a": (30.0, True, 2, "T4")})
+    ctx = Context(h.controller.config, tmp_path / "home", h.db, h.storage, h.controller)
+    queued = h.submit("queued")
+    request(ctx, queued.id, "pause")
+    request(ctx, queued.id, "resume")  # changed their mind before the controller ran
+    assert h.job(queued.id).requested is None
+    h.controller.tick()
+    assert h.job(queued.id).state is JobState.RUNNING  # not paused
+
+    running = h.submit("running")
+    h.controller.tick()
+    request(ctx, running.id, "pause")
+    h.controller.tick()  # the session is asked to hand off
+    assert h.storage.get_bytes(control_key(running.id)) is not None
+    request(ctx, running.id, "resume")
+    assert (
+        h.storage.get_bytes(control_key(running.id)) is None and h.job(running.id).requested is None
+    )
+    h.finish(running.id, 85, "handoff")  # if it handed off anyway, it just continues
+    h.controller.tick()
+    assert h.job(running.id).state is not JobState.PAUSED
