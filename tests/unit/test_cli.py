@@ -16,7 +16,7 @@ IMPLEMENTED = {
     "init",
     "run-local", "analyze", "submit", "up", "status", "logs", "quota", "pause", "resume",
     "cancel", "fetch", "colab", "dashboard", "export-state", "import-state", "serve",
-    "app", "gateway", "helper",
+    "app", "gateway", "helper", "reset-link",
 }  # fmt: skip
 
 # Minimal valid arguments for invoking each command.
@@ -101,3 +101,30 @@ def test_bad_inputs_get_clean_errors(tmp_path: Path) -> None:
         assert result.exit_code != 0, args
         assert message in " ".join(result.output.split()), (args, result.output)
         assert not isinstance(result.exception, AssertionError | TypeError | AttributeError)
+
+
+def test_reset_link_prints_a_one_time_link_that_sets_a_new_password(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("cryptography")
+    from typer.testing import CliRunner
+
+    from gpurelay.accounts.store import UserStore
+    from gpurelay.cli import app
+    from gpurelay.gateway.account_routes import RESET, token_hash
+
+    url = f"sqlite:///{tmp_path / 'users.db'}"
+    store = UserStore(url)
+    user = store.create("ada@example.com", "correct horse battery", username="ada")
+    runner = CliRunner()
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert runner.invoke(app, ["reset-link", "ada", "--site", "https://x"]).exit_code != 0
+    monkeypatch.setenv("DATABASE_URL", url)
+    out = runner.invoke(app, ["reset-link", "ada", "--site", "https://x.example/"])
+    assert out.exit_code == 0, out.output
+    token = out.output.split("/reset?t=")[1].split()[0]
+    assert store.take_link(token_hash(token), RESET) == user.id  # usable once, for that user
+    assert store.take_link(token_hash(token), RESET) is None
+    by_email = runner.invoke(app, ["reset-link", "ada@example.com", "--site", "https://x"])
+    assert by_email.exit_code == 0
+    assert runner.invoke(app, ["reset-link", "nobody", "--site", "https://x"]).exit_code != 0

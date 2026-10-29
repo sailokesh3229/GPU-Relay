@@ -965,5 +965,36 @@ def gateway(
                 proxy_headers=True)  # fmt: skip
 
 
+@app.command("reset-link")
+def reset_link(
+    login: Annotated[str, typer.Argument(help="The account's email or username.")],
+    site: Annotated[
+        str | None, typer.Option("--site", envvar="GPURELAY_SITE_URL", help="The site's address.")
+    ] = None,
+) -> None:
+    """Print a one-time link to choose a new password, for a website account (works without
+    email). Needs the site's DATABASE_URL in the environment: only its owner can do this."""
+    import os
+
+    from gpurelay.accounts.store import ENV_DATABASE_URL, UserStore
+    from gpurelay.gateway.account_routes import RESET, RESET_S, new_link
+
+    url = os.environ.get(ENV_DATABASE_URL, "").strip()
+    if not url:
+        _fail(RuntimeError(f"set {ENV_DATABASE_URL} to the site's database (Render > "
+                           "Environment) in this terminal first"))  # fmt: skip
+    if not site:
+        _fail(RuntimeError("give the site's address: --site https://... (or GPURELAY_SITE_URL)"))
+    store = UserStore(url)
+    user = store.find(login) if "@" in login else store.find_username(login)
+    if user is None:
+        _fail(RuntimeError(f"no account {login!r} on this site"))
+    token = new_link(store, user.id, RESET, RESET_S)
+    console.print(f"Open this link within an hour to choose a new password for {user.name}:")
+    link = f"{site.rstrip('/')}/reset?t={token}"
+    console.print(link, markup=False, highlight=False, soft_wrap=True)
+    console.print("[dim]It works once. A new password signs the account out everywhere.[/dim]")
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

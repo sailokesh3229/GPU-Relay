@@ -1480,3 +1480,14 @@ None has started a real machine.
   and Fix it with AI as optional.
 - Checks: 668 unit tests (Windows) and 655 (Linux, Python 3.10) pass; the parallel chunks
   and Colab relay integration tests pass.
+
+## Email on Render's free plan, and resetting a password without email (2026-10-29)
+
+- Render's free plan blocks outgoing SMTP (ports 25, 465, 587, since September 2025): the
+  site's mail failed with `OSError` (seen in the Render log). The site now also sends
+  through **Brevo's HTTPS API** (`GPURELAY_BREVO_API_KEY`, preferred over SMTP when set;
+  `GPURELAY_MAIL_FROM` must be a sender verified in Brevo). Brevo's reason is logged when it
+  refuses a mail, never the key. Test: `test_mail_goes_through_brevo_over_https_when_its_key_is_set`.
+- `gpurelay reset-link <email or username> --site <url>`, run with the site's
+  `DATABASE_URL`, prints a one-time reset link (one hour), the same kind "forgot password"
+  emails: an owner can let someone back in without email. Test in `test_cli.py`.

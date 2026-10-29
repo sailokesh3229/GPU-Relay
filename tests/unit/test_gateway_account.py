@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -209,3 +210,55 @@ def test_choose_a_username_on_the_account_page(tmp_path: Path) -> None:
     other = TestClient(client.app, follow_redirects=False)
     assert other.post("/signin", data={"login": "oldie", "password": PW}).status_code == 303
     assert other.get("/api/me").json()["user"]["name"] == "oldie"
+
+
+def test_mail_goes_through_brevo_over_https_when_its_key_is_set(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import io
+    import json as json_
+    import urllib.error
+    import urllib.request
+
+    from gpurelay.gateway.mail import BREVO_URL, Mailer
+
+    env = {
+        "GPURELAY_BREVO_API_KEY": "xkeysib-secret",
+        "GPURELAY_MAIL_FROM": "me@gmail.com",
+        "GPURELAY_SITE_URL": "https://site.example",
+        "GPURELAY_SMTP_HOST": "smtp.gmail.com",
+    }
+    mailer = Mailer.from_env(env)
+    assert mailer is not None and mailer.brevo_key == "xkeysib-secret"  # Brevo wins over SMTP
+    sent: list[Any] = []
+
+    class Answer:
+        def __enter__(self) -> Answer:
+            return self
+
+        def __exit__(self, *exc: Any) -> None:
+            return None
+
+    def urlopen(request: Any, timeout: float) -> Answer:
+        sent.append(request)
+        return Answer()
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    assert mailer.send("ada@example.com", "Reset", "the link")
+    [request] = sent
+    assert request.full_url == BREVO_URL and request.get_header("Api-key") == "xkeysib-secret"
+    body = json_.loads(request.data)
+    assert body["sender"]["email"] == "me@gmail.com" and body["to"] == [
+        {"email": "ada@example.com"}
+    ]
+    assert body["textContent"] == "the link"
+
+    def refused(request: Any, timeout: float) -> Answer:
+        raise urllib.error.HTTPError(BREVO_URL, 400, "Bad", {},  # type: ignore[arg-type]
+                                     io.BytesIO(b'{"message": "sender is not valid"}'))  # fmt: skip
+
+    monkeypatch.setattr(urllib.request, "urlopen", refused)
+    with caplog.at_level("WARNING"):
+        assert not mailer.send("ada@example.com", "Reset", "the link")
+    assert "sender is not valid" in caplog.text and "xkeysib" not in caplog.text
+    assert Mailer.from_env({"GPURELAY_SITE_URL": "https://x"}) is None  # no email at all

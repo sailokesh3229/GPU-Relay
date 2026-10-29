@@ -32,7 +32,11 @@ services:
       # Optional: sign-up needs this code (share it with the people you invite).
       - key: GPURELAY_INVITE_CODE
         sync: false
-      # Optional email (verification, password reset, job emails): an SMTP server.
+      # Optional email (verification, password reset, job emails). Render's free plan blocks
+      # SMTP, so use Brevo's HTTPS API (free: 300 mails a day; GPURELAY_MAIL_FROM must be a
+      # sender verified in Brevo). An SMTP server works on paid plans and elsewhere.
+      - key: GPURELAY_BREVO_API_KEY
+        sync: false
       - key: GPURELAY_SITE_URL
         value: https://gpu-relay-9uuh.onrender.com
       - key: GPURELAY_SMTP_HOST

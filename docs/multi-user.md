@@ -34,7 +34,8 @@ that repo on its first start.
 | `GPURELAY_MAX_ACTIVE` | 2 | Users' GPU Relay running at once (each about 110-150 MB; the free plan has 512 MB). |
 | `GPURELAY_MAX_JOBS` | 3 | Unfinished jobs per user. |
 | `GPURELAY_INVITE_CODE` | optional | Sign-up needs this code. |
-| `GPURELAY_SMTP_HOST`, `_PORT` (587), `_USER`, `_PASSWORD`, `GPURELAY_MAIL_FROM` | optional | Email: confirmation links, password reset, job emails. Without it: no verification and no password reset. |
+| `GPURELAY_BREVO_API_KEY`, `GPURELAY_MAIL_FROM` | optional | Email through Brevo's HTTPS API (free: 300 mails a day). **Use this on Render's free plan, which blocks outgoing SMTP.** `GPURELAY_MAIL_FROM` must be a sender verified in Brevo. |
+| `GPURELAY_SMTP_HOST`, `_PORT` (587), `_USER`, `_PASSWORD`, `GPURELAY_MAIL_FROM` | optional | Email through an SMTP server instead (paid hosting plans). Either way: confirmation links, password reset, job emails. Without email: no verification, and a forgotten password is reset with `gpurelay reset-link <email> --site <url>` run with the site's `DATABASE_URL`. |
 | `GPURELAY_SITE_URL` | with email | The site's address, for links in mails. |
 | `GPURELAY_USERS_DIR` | optional | Users' folders on the server (the image sets it). |
 
