@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU Relay · Your GPU platforms</title>
+<style>
+:root{--bg:#F3F4F6;--card:#FFFFFF;--line:#E2E5EA;--field:#CDD2DA;--ink:#15171C;--muted:#5B6270;--accent:#2952CC;--accent-ink:#FFFFFF;--soft:#EEF2FC;--good:#067647;--good-soft:#ECFDF3;--bad:#B42318;--warn-soft:#FFF6E5;--warn:#8A5300}
+@media (prefers-color-scheme: dark){:root{--bg:#111318;--card:#1A1D24;--line:#2A2F39;--field:#3A404C;--ink:#ECEEF2;--muted:#A3AAB8;--accent:#6E8EF0;--accent-ink:#0B1020;--soft:#1E2433;--good:#47CD89;--good-soft:#0F2A1D;--bad:#F97066;--warn-soft:#2B2210;--warn:#F5C26B}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 14px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;color:inherit;text-decoration:none}
+nav.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px}
+main{max-width:820px;margin:0 auto;padding:24px 16px 120px;display:flex;flex-direction:column;gap:16px}
+h1{margin:0;font-size:24px;letter-spacing:-.02em}
+h2{margin:0;font-size:17px}
+h3{margin:0;font-size:15px}
+p{margin:0}
+a{color:var(--accent)}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:14px}
+#sections{display:flex;flex-direction:column;gap:16px}
+.platform{border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:10px}
+.platform:first-of-type{border-top:0;padding-top:0}
+.head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.pill{padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--soft);color:var(--muted);white-space:nowrap}
+.pill.on{background:var(--good-soft);color:var(--good)}
+fieldset{border:0;margin:0;padding:0;min-width:0;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center}
+legend{float:left;margin-right:12px;font-weight:500}
+label{font-weight:600;font-size:13px;display:flex;flex-direction:column;gap:4px}
+label.opt{flex-direction:row;align-items:center;gap:6px;font-weight:500;font-size:14px;min-height:32px}
+input,textarea{border:1px solid var(--field);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;width:100%}
+input{min-height:40px;padding:0 10px}
+input[type=radio],input[type=checkbox]{width:18px;height:18px;min-height:auto;margin:0}
+textarea{min-height:90px;padding:8px 10px;font:13px ui-monospace,Consolas,monospace}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.fields .wide{grid-column:1/-1}
+.detail{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-radius:10px;background:var(--soft)}
+.detail[hidden]{display:none}
+.warn{padding:10px 12px;border-radius:8px;background:var(--warn-soft);color:var(--warn)}
+button,a.button{min-height:38px;padding:0 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);font:600 14px system-ui,sans-serif;cursor:pointer;display:inline-flex;align-items:center;text-decoration:none}
+button.plain,a.plain{background:var(--card);color:var(--ink);border-color:var(--line)}
+button.danger{background:var(--card);color:var(--bad);border-color:var(--bad)}
+button:disabled{opacity:.6;cursor:wait}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:12px 16px}
+.bar .in{max-width:820px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+.msg{min-height:1.4em;font-weight:500}
+.msg.bad{color:var(--bad)}
+.msg.good{color:var(--good)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:480px){legend{float:none;width:100%;margin:0}}
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/" id="brand">
+    <svg width="26" height="26" viewBox="0 0 28 28" aria-hidden="true"><rect x="1" y="1" width="26" height="26" rx="7" fill="#2952CC"></rect><path d="M7 17h5l3-6 3 6h3" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    GPU Relay
+  </a>
+  <nav class="top" id="nav"></nav>
+</header>
+<main>
+  <div>
+    <h1>Your GPU platforms</h1>
+    <p class="muted">GPU Relay runs your jobs on free GPU time first, then on credits you bought, cheapest first, and never past the limits you set.
+      Tell it which platforms you have. Skip anything you like; you can come back from Settings at any time, for example after buying credits somewhere.
+      Answering again never removes what you saved before.</p>
+  </div>
+  <div id="sections"><p class="muted">Loading…</p></div>
+</main>
+<div class="bar">
+  <div class="in">
+    <p class="msg" id="msg" role="status"></p>
+    <div class="btns">
+      <button type="button" class="plain" id="skip">Skip for now</button>
+      <button type="button" id="save">Save and continue</button>
+    </div>
+  </div>
+</div>
+<script>
+"use strict";
+const HELP = {
+  hyperscaler: "Do you have an account?",
+  free: "Do you have an account?",
+};
+const SUPPORT = {
+  cloud: "GPU Relay can start GPUs here with your key: turn it on below. Not yet tried on a real account, so start with a small credit or limit.",
+  later: "Support for this platform is not decided yet.",
+};
+let state = null, me = {};
+
+function el(tag, attrs, ...kids) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === "text") node.textContent = v;
+    else if (k.startsWith("on")) node[k] = v;
+    else node.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid !== null && kid !== undefined) node.append(kid);
+  return node;
+}
+function say(text, kind) { const m = document.getElementById("msg"); m.className = `msg ${kind || ""}`; m.textContent = text; }
+async function api(path, body) {
+  const options = body === undefined ? {} : {method: "POST", body: JSON.stringify(body),
+    headers: {"Content-Type": "application/json", "X-GPURelay-Action": "1"}};
+  const r = await fetch(path, {credentials: "same-origin", ...options});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || `request failed (${r.status})`);
+  return data;
+}
+const when = (t) => new Date(t * 1000).toLocaleDateString(undefined, {day: "numeric", month: "short", year: "numeric"});
+
+function credentialFields(p) {
+  if (!p.fields.length) return null;
+  const saved = p.fields.some((f) => f.saved_at);
+  const inputs = p.fields.map((f) => {
+    const id = `f-${p.id}-${f.key}`;
+    const ph = f.saved_at ? `Saved ${when(f.saved_at)}: leave empty to keep it` : f.placeholder;
+    const input = f.multiline
+      ? el("textarea", {id, "data-platform": p.id, "data-field": f.key, placeholder: ph, spellcheck: "false", autocomplete: "off"})
+      : el("input", {id, type: f.secret ? "password" : "text", "data-platform": p.id, "data-field": f.key, placeholder: ph, autocomplete: "off", spellcheck: "false"});
+    return el("label", {for: id, class: f.multiline ? "wide" : null}, f.label, input);
+  });
+  const remove = saved ? el("button", {type: "button", class: "danger"}, "Remove saved credentials") : null;
+  if (remove) remove.onclick = async () => {
+    if (remove.dataset.armed !== "1") { remove.dataset.armed = "1"; remove.textContent = `Click again to remove ${p.name}'s credentials`; return; }
+    remove.disabled = true;
+    try { state = await api("api/platforms/remove", {platform: p.id}); render(); say(`${p.name}'s credentials removed. Your answers stay.`, "good"); }
+    catch (e) { say(e.message, "bad"); remove.disabled = false; }
+  };
+  return [
+    p.how ? el("p", {class: "small"}, el("strong", {text: "Where to get it: "}), p.how) : null,
+    el("div", {class: "fields"}, inputs),
+    el("p", {class: "small muted", text: "Kept encrypted and never shown again; only your own GPU Relay gets it, and only while the platform is turned on below. Use a key made only for GPU Relay, so you can revoke it on its own."}),
+    remove ? el("div", {class: "btns"}, remove) : null,
+  ];
+}
+
+function useBox(p) {
+  const u = p.use;
+  if (!u) return state.can_use || p.support !== "cloud" ? null
+    : el("p", {class: "small muted", text: "Finish setting up GPU Relay (where checkpoints live) to turn this platform on."});
+  const id = (k) => `u-${p.id}-${k}`;
+  const on = el("input", {type: "checkbox", id: id("on"), checked: u.enabled, "data-use": p.id, "data-key": "enabled"});
+  const terms = u.terms ? null : el("input", {type: "checkbox", id: id("terms"), "data-use": p.id, "data-key": "terms"});
+  const credit = el("input", {type: "number", id: id("credit"), min: "0", step: "0.01", inputmode: "decimal", "data-use": p.id, "data-key": "credit_usd",
+    placeholder: u.credit_usd === null ? "for example 25" : `$${u.credit_usd.toFixed(2)} on ${when(u.credit_set_at)}: leave empty to keep counting`});
+  const spend = el("input", {type: "checkbox", id: id("spend"), checked: u.use_credits, "data-use": p.id, "data-key": "use_credits"});
+  const card = el("input", {type: "number", id: id("card"), min: "0", step: "1", inputmode: "decimal", value: String(u.card_limit_usd), "data-use": p.id, "data-key": "card_limit_usd"});
+  const machine = el("input", {type: "text", id: id("machine"), value: u.machine || "", "data-use": p.id, "data-key": "machine", autocomplete: "off", spellcheck: "false"});
+  const region = u.region_label ? el("input", {type: "text", id: id("region"), value: u.region || "", "data-use": p.id, "data-key": "region", autocomplete: "off", spellcheck: "false"}) : null;
+  for (const input of [on, spend, card, machine, region].filter(Boolean)) input.dataset.was = input.type === "checkbox" ? String(input.checked) : input.value;
+  return el("div", {class: "fields"},
+    el("label", {class: "opt wide", for: id("on")}, on, `Let GPU Relay start GPUs on ${p.name} for my jobs`),
+    terms ? el("label", {class: "opt wide", for: id("terms")}, terms, `I read ${p.name}'s terms of service and accept them for this use`) : null,
+    el("label", {for: id("credit")}, "Credit you have there now ($)", credit),
+    el("label", {for: id("card")}, "Card spending beyond it, per month ($)", card),
+    el("label", {for: id("machine")}, u.machine_label, machine),
+    region ? el("label", {for: id("region")}, u.region_label, region) : null,
+    el("label", {class: "opt wide", for: id("spend")}, spend, "Spend this credit after free GPU time runs out (cheapest platform first, never past what is left)"),
+    el("p", {class: "small muted wide", text: "Card spending stays $0 unless you raise it here and the job allows paid GPUs. Each segment runs on its own machine, deleted as soon as the segment ends."}));
+}
+
+function supportLine(p) {
+  if (p.support === "setup") {
+    if (p.connected) return el("p", {}, el("span", {class: "pill on", text: "Connected"}), " ", el("span", {class: "small muted", text: "GPU Relay uses it for your jobs."}));
+    return el("p", {}, el("a", {class: "button plain", href: p.setup}, `Connect ${p.name} in setup →`));
+  }
+  return el("p", {class: "small muted", text: SUPPORT[p.support] || ""});
+}
+
+function question(p) {
+  const name = `has-${p.id}`;
+  const detail = el("div", {class: "detail", hidden: p.has !== "yes"},
+    p.note ? el("p", {class: p.section === "hyperscaler" ? "warn small" : "small", text: p.note}) : null,
+    supportLine(p), credentialFields(p), useBox(p));
+  const option = (value, label) => {
+    const input = el("input", {type: "radio", name, value, checked: p.has === value});
+    input.onchange = () => { detail.hidden = value !== "yes"; };
+    return el("label", {class: "opt"}, input, label);
+  };
+  return el("div", {class: "platform", "data-id": p.id},
+    el("div", {class: "head"}, el("h3", {}, el("a", {href: p.site, target: "_blank", rel: "noopener", text: p.name})),
+      p.connected ? el("span", {class: "pill on", text: "Connected"}) : p.fields.some((f) => f.saved_at) ? el("span", {class: "pill on", text: "Credentials saved"}) : null),
+    el("fieldset", {}, el("legend", {text: HELP[p.section]}), option("yes", "Yes"), option("no", "No"), option("later", "Not now")),
+    detail);
+}
+
+function cloud(p) {
+  const id = `has-${p.id}`;
+  const box = el("input", {type: "checkbox", id, checked: p.has === "yes", "data-was": p.has || ""});
+  const detail = el("div", {class: "detail", hidden: p.has !== "yes"}, p.note ? el("p", {class: "small", text: p.note}) : null,
+    supportLine(p), credentialFields(p), useBox(p));
+  box.onchange = () => { detail.hidden = !box.checked; };
+  return el("div", {class: "platform", "data-id": p.id},
+    el("div", {class: "head"}, el("label", {class: "opt", for: id}, box, el("strong", {text: p.name})),
+      p.fields.some((f) => f.saved_at) ? el("span", {class: "pill on", text: "Credentials saved"}) : el("a", {class: "small", href: p.site, target: "_blank", rel: "noopener", text: "website"})),
+    detail);
+}
+
+function render() {
+  const root = document.getElementById("sections");
+  root.replaceChildren();
+  const intro = {
+    hyperscaler: "The big clouds. GPU time there is paid from your credits or card.",
+    gpu_cloud: "Tick the ones where you have paid GPU access (credits or a card), and add the key GPU Relay needs for each.",
+    free: "Free GPU allowances. GPU Relay always uses these first.",
+  };
+  for (const s of state.sections) {
+    const list = state.platforms.filter((p) => p.section === s.id);
+    const card = el("section", {class: "card", "aria-labelledby": `h-${s.id}`},
+      el("div", {}, el("h2", {id: `h-${s.id}`, text: s.title}), el("p", {class: "muted small", text: intro[s.id]})),
+      list.map((p) => (s.id === "gpu_cloud" ? cloud(p) : question(p))));
+    if (s.id === "gpu_cloud") {
+      card.append(el("div", {class: "platform"}, el("label", {for: "others"}, "Others you have (comma separated)",
+        el("input", {id: "others", type: "text", value: state.others.join(", "), placeholder: "for example TensorDock, Jarvislabs", autocomplete: "off"})),
+        el("p", {class: "small muted", text: "GPU Relay records them, so they can be added later."})));
+    }
+    root.append(card);
+  }
+}
+
+function collect(done) {
+  const answers = {}, credentials = {};
+  for (const p of state.platforms) {
+    if (p.section === "gpu_cloud") {
+      const box = document.getElementById(`has-${p.id}`);
+      if (box.checked) answers[p.id] = "yes";
+      else if (box.dataset.was === "yes") answers[p.id] = "no";
+    } else {
+      const picked = document.querySelector(`input[name="has-${p.id}"]:checked`);
+      if (picked && picked.value !== (p.has || "")) answers[p.id] = picked.value;
+    }
+  }
+  for (const input of document.querySelectorAll("[data-field]")) {
+    if (!input.value.trim()) continue;
+    (credentials[input.dataset.platform] ||= {})[input.dataset.field] = input.value;
+  }
+  const use = {};
+  for (const input of document.querySelectorAll("[data-use]")) {
+    const key = input.dataset.key, part = (use[input.dataset.use] ||= {});
+    if (input.type === "checkbox") {
+      if (key === "terms") { if (input.checked) part.terms = true; continue; }
+      if (String(input.checked) !== input.dataset.was) part[key] = input.checked;
+    } else if (key === "credit_usd") {
+      if (input.value.trim() !== "") part.credit_usd = Number(input.value);
+    } else if (input.value !== input.dataset.was) {
+      part[key] = key === "card_limit_usd" ? Number(input.value || 0) : input.value;
+    }
+  }
+  for (const [k, v] of Object.entries(use)) if (!Object.keys(v).length) delete use[k];
+  const others = document.getElementById("others").value.split(",").map((s) => s.trim()).filter(Boolean);
+  return {answers, credentials, others, use, done};
+}
+
+async function submit(button, body, then) {
+  for (const b of document.querySelectorAll(".bar button")) b.disabled = true;
+  say("Saving…");
+  try {
+    state = await api("api/platforms", body);
+    for (const input of document.querySelectorAll("[data-field], [data-key=credit_usd]")) input.value = "";
+    say("Saved.", "good");
+    location.href = then === undefined ? state.next : then;
+  } catch (e) {
+    say(e.message, "bad");
+    for (const b of document.querySelectorAll(".bar button")) b.disabled = false;
+  }
+}
+
+async function start() {
+  try {
+    [state, me] = await Promise.all([api("api/platforms"), api("api/me").catch(() => ({}))]);
+  } catch (e) { document.getElementById("sections").replaceChildren(el("p", {class: "msg bad", text: e.message})); return; }
+  const nav = document.getElementById("nav");
+  if (me.desktop) {
+    document.getElementById("brand").setAttribute("href", "./");
+    nav.append(el("a", {href: state.next, text: "Back"}));
+  } else {
+    nav.append(el("a", {href: "/setup", text: "Setup"}), el("a", {href: "/account", text: "Account"}));
+  }
+  document.getElementById("skip").textContent = state.asked ? "Back without saving" : "Skip for now";
+  document.getElementById("skip").onclick = (ev) => (state.asked ? (location.href = state.next) : submit(ev.target, {done: true}));
+  document.getElementById("save").onclick = (ev) => submit(ev.target, collect(true));
+  render();
+}
+start();
+</script>
+</body>
+</html>

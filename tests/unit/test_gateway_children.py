@@ -263,11 +263,17 @@ def test_free_port_is_usable() -> None:
     assert 0 < children_mod.free_port() < 65536
 
 
-def test_signing_in_goes_to_setup_until_ready_then_to_the_app(forwarding: Any) -> None:
+def test_signing_in_asks_about_platforms_then_setup_until_ready_then_the_app(
+    forwarding: Any,
+) -> None:
     w, client, _ = forwarding
     response = client.post("/signup", data={"username": "cyrus", "email": "cy@example.com",
                                             "password": PW, "confirm": PW})  # fmt: skip
-    assert response.headers["location"] == "/setup"  # nothing connected yet
+    assert response.headers["location"] == "/platforms"  # asked once, first
+    assert client.get("/").headers["location"] == "/platforms"
+    skipped = client.post("/api/platforms", json={"done": True})
+    assert skipped.status_code == 200 and skipped.json()["next"] == "/setup"
+    assert client.get("/").headers["location"] == "/setup"  # nothing connected yet
     assert client.get("/").headers["location"] == "/setup"  # the front page sends you on
     cy = w.store.find("cy@example.com")
     w.spaces.put_secrets(cy.id, {"hf_token": "hf_" + "x" * 30})

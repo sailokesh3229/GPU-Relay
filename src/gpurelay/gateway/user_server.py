@@ -64,7 +64,13 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - wires real
     try:
         ctx = open_context(load_config(config_path))
         # The AI tools are on the user's laptop: their helper answers fix requests.
-        app = create_app(ctx, allowed_hosts=LOCAL_HOSTS, launch_key=key, ai_fix="helper")
+        app = create_app(
+            ctx,
+            allowed_hosts=LOCAL_HOSTS,
+            launch_key=key,
+            ai_fix="helper",
+            platforms_url="/platforms",
+        )
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     finally:
         with contextlib.suppress(Exception):

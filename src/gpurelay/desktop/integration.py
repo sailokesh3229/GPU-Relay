@@ -46,7 +46,7 @@ def _ps_quote(value: str) -> str:
 
 def create_shortcut(target: str | None = None, run: Callable[..., object] = subprocess.run) -> Path:
     """Add GPU Relay to the Start menu (current user only), pointing at this executable."""
-    if sys.platform != "win32":
+    if os.name != "nt":  # (os.name: mypy checks the rest on every platform)
         raise OSError("Start menu entries exist only on Windows")
     exe = target or sys.executable
     link = shortcut_path()

@@ -17,8 +17,10 @@ def long_path(path: Path) -> Path:
     session directories easily exceed ``MAX_PATH``.
     """
     resolved = Path(path).resolve()
-    if sys.platform != "win32":
-        return resolved
+    return _extended(resolved) if sys.platform == "win32" else resolved
+
+
+def _extended(resolved: Path) -> Path:
     text = str(resolved)
     if text.startswith(_EXTENDED):
         return resolved

@@ -262,6 +262,46 @@ real call; the terms for driving the user's own CLI stay a re-check item; Codex 
 
 ---
 
+## Bug fixes B1 (2026-10-29, built)
+
+All known bugs before the platform phases, so they start from a green base:
+CI type checks on Linux (platform checks mypy reads as unreachable, `CREATE_NO_WINDOW`,
+psycopg stubs), Python 3.10 (`datetime.UTC` in a test), CI missing test packages
+(`cryptography`, `numpy`), the stop file not stopping `gpurelay up` on Linux (the signal went
+to the watcher thread), Modal's readiness test needing the SDK, timing-sensitive handoff tests,
+and `instrument_functions` losing what an earlier function returned to its caller on resume.
+Details in `docs/progress.md`.
+
+---
+
+## Your GPU platforms (phases G1-G5, one at a time; the owner verifies each)
+
+Confirmed with the owner 2026-10-29 (spec §21). The owner has no account with credits on
+these platforms yet: each backend is built against the official documentation and fakes,
+and marked "not tried live" until someone runs it on a real account.
+
+- **G1 Asking and Settings** (built 2026-10-29, `docs/progress.md`). The "Your GPU platforms" page at first sign-in (website) and
+  first start (desktop) with the three sections; the same page in Settings; answers and
+  credentials per user, never lost on change; platforms without a backend recorded as
+  "not supported yet"; the zero-GPU-quota note for hyperscalers.
+  Done when: a new user answers, skips, comes back through Settings, adds a platform, and
+  nothing earlier is lost (tests through the website and the desktop app).
+- **G2 Credits left** (built 2026-10-29). Per-platform credit: from the platform's API where it has one, else
+  entered amount minus measured spend, with corrections; budget cards; low and empty
+  notifications; the scheduler counts credit left with the monthly and job limits.
+  Done when: in simulation, jobs use free time first, then the cheapest paid platform, and
+  stop before the credit runs out.
+- **G3 GPU clouds with containers: RunPod, Vast.ai** (built 2026-10-29, not run live). Per-second billing, official APIs
+  (ToS and API checked first, `docs/verify.md`); one container per segment; self-stop at the
+  deadline; orphan sweep.
+- **G4 GPU clouds with machines: Lambda, DigitalOcean** (startup scripts; built 2026-10-29, not run live). CoreWeave is
+  Kubernetes under a contract: decided after its terms are checked.
+- **G5 Hyperscalers: Google Cloud, AWS, Azure** (built 2026-10-29, not run live). GPU machines with startup scripts, the
+  quota note, credits where the platform reports them (AWS has a credits API; Google Cloud
+  shows trial credit only in its console, so it is estimated).
+
+---
+
 ## Phase checklist summary
 
 | Phase | Outcome | Key proof |
@@ -278,3 +318,5 @@ real call; the terms for driving the user's own CLI stay a re-check item; Codex 
 | 9 | Stretch features | per-feature tests |
 | M1-M5 | Multi-user website | two users never see each other's jobs or tokens |
 | A1-A3 | AI fix with the user's own subscription | a failing job is fixed and rerun after the user approves |
+| B1 | Known bugs fixed | unit tests pass on Linux + Python 3.10 and Windows; mypy clean for both |
+| G1-G5 | The user's own GPU platforms | free first, then the cheapest paid credit, never past it |

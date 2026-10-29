@@ -51,6 +51,30 @@ def _pair(
     return baseline, run
 
 
+def _pair_with_handoffs(
+    tmp_path: Path,
+    name: str,
+    env: dict[str, str],
+    want: int,
+    deadline_s: float,
+    margin: float = 0.3,
+    options: dict[str, Any] | None = None,
+) -> tuple[RunOutput, RunOutput]:
+    """Like ``_pair`` with session deadlines, for at least ``want`` handoffs. A session's time
+    includes starting Python and the framework, which is much faster on some machines (CI)
+    than others: when a run needed fewer sessions, it is repeated with shorter ones."""
+    script = CORPUS / f"{name}.py"
+    settings = _settings(margin, **(options or {}))
+    baseline = run_job(script, tmp_path / "a", env=env, settings=settings)
+    assert baseline.outcomes == ["completed"]
+    for attempt in range(4):
+        run = run_job(script, tmp_path / f"b{attempt}", env=env, settings=settings,
+                      deadline_s=deadline_s * 0.7**attempt)  # fmt: skip
+        if run.outcomes.count("handoff") >= want:
+            break
+    return baseline, run
+
+
 # ---------------------------------------------------------------- no ML framework
 
 
@@ -98,6 +122,17 @@ def test_function_loops_opt_in_restore_locals(tmp_path: Path) -> None:
     options = {"instrument_functions": True, "instrument_while": True}
     baseline, run = _pair(tmp_path, "function_loops", env, options=options,
                           kill_between_s=(1.5, 2.5), seed=6)  # fmt: skip
+    assert run.outcomes.count("crashed") >= 1, run.outcomes
+    assert_equivalent(baseline, run)
+
+
+def test_callers_keep_what_an_earlier_function_returned(tmp_path: Path) -> None:
+    # Every checkpoint is in evaluate()'s loop; main's `history` (from train(), whose loop a
+    # resume skips) must come back from the checkpoint, or main fails at history[-1].
+    env = {"CORPUS_STEP_SLEEP": "0.1"}
+    options = {"instrument_functions": True}
+    baseline, run = _pair(tmp_path, "function_callers", env, options=options,
+                          kill_between_s=(1.5, 2.5), seed=1)  # fmt: skip
     assert run.outcomes.count("crashed") >= 1, run.outcomes
     assert_equivalent(baseline, run)
 
@@ -150,8 +185,8 @@ def test_torch_training_inside_a_function_opt_in(tmp_path: Path) -> None:
     # several seconds), so the loop inside train() resumes at least once.
     env = {"CORPUS_STEP_SLEEP": "0.1"}
     options = {"instrument_functions": True}
-    baseline, run = _pair(tmp_path, "function_loops_torch", env, options=options,
-                          deadline_s=7.0)  # fmt: skip
+    baseline, run = _pair_with_handoffs(tmp_path, "function_loops_torch", env, want=1,
+                                        deadline_s=7.0, options=options)  # fmt: skip
     assert run.outcomes.count("handoff") >= 1, run.outcomes
     assert_equivalent(baseline, run)
 
@@ -162,7 +197,8 @@ def test_dataloader_resumes_mid_epoch_with_the_same_batches(tmp_path: Path) -> N
     # several seconds of that), so it trains for well under an epoch: progress needs
     # mid-epoch resume, and equivalence needs the same shuffled batches after each resume.
     env = {"CORPUS_STEP_SLEEP": "0.05"}
-    baseline, run = _pair(tmp_path, "dataloader_mid_epoch", env, deadline_s=9.0)
+    baseline, run = _pair_with_handoffs(tmp_path, "dataloader_mid_epoch", env, want=3,
+                                        deadline_s=9.0)  # fmt: skip
     assert run.outcomes.count("handoff") >= 3, run.outcomes
     assert_equivalent(baseline, run)
 
@@ -183,7 +219,8 @@ def test_vae_fid_unmodified_survives_random_kills(tmp_path: Path) -> None:
 @pytest.mark.hf
 def test_hf_trainer_unmodified_handoffs(tmp_path: Path) -> None:
     env = {"CORPUS_EPOCHS": "4", "CORPUS_STEP_SLEEP": "0.2"}
-    baseline, run = _pair(tmp_path, "hf_trainer", env, margin=2.0, deadline_s=22)
+    baseline, run = _pair_with_handoffs(tmp_path, "hf_trainer", env, want=1, deadline_s=22,
+                                        margin=2.0)  # fmt: skip
     assert "handoff" in run.outcomes, run.outcomes
     assert_equivalent(baseline, run)
     assert not (run.final_dir / "files" / "hf_out").exists()  # relay saves never leak

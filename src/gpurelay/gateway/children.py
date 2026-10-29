@@ -150,7 +150,8 @@ class Children:
         write_home(home, self.spaces.config(user_id))
         (home / STOP_NAME).unlink(missing_ok=True)
         key, port = secrets.token_urlsafe(32), free_port()
-        env = {**user_environment(home, self.spaces.secrets(user_id)), ENV_LAUNCH_KEY: key}
+        env = {**user_environment(home, self.spaces.secrets(user_id)),
+               **self.spaces.platform_env(user_id), ENV_LAUNCH_KEY: key}  # fmt: skip
         process = self.spawn(home, env, port)
         child = Child(user_id, port, key, process, home, last_used=self.clock())
         self._children[user_id] = child

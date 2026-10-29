@@ -218,6 +218,7 @@ def create_app(
     setup_deps: SetupDeps | None = None,
     ai_fix: str = "local",
     ai: Any = None,
+    platforms_url: str | None = None,
 ) -> FastAPI:
     """``allowed_hosts``: accepted ``Host`` names. Anything else is refused, which stops DNS
     rebinding (a website pointing its own domain at 127.0.0.1 to reach this API). None accepts
@@ -227,7 +228,9 @@ def create_app(
 
     ``ai_fix``: where "Fix it with AI" runs the user's AI tool (``dashboard/aifix_routes``):
     ``"local"`` on this computer, ``"helper"`` on the user's laptop (the website).
-    ``ai``: a ready-made :class:`~gpurelay.dashboard.aifix_routes.AiFix` instead (tests)."""
+    ``ai``: a ready-made :class:`~gpurelay.dashboard.aifix_routes.AiFix` instead (tests).
+    ``platforms_url``: the "Your GPU platforms" page (spec §21.1) for Settings: the
+    website's (``/platforms``); the desktop app serves its own."""
     if desktop is not None and (auth is not None or launch_key is None):
         raise ValueError("the desktop app runs locally with a launch key, never behind a login")
     if allowed_hosts is None and auth is None:
@@ -315,6 +318,7 @@ def create_app(
             "anonymous": getattr(request.state, "anonymous", False),
             "desktop": desktop is not None,
             "configured": True,
+            "platforms_url": "platforms" if desktop is not None else platforms_url,
         }
 
     controller = ctx.controller
@@ -369,6 +373,13 @@ def create_app(
                     "paid_usd_per_h": b.paid_usd_per_h,
                     "paid_cap_usd": b.paid_cap_usd,
                     "paid_spent_usd": round(b.paid_spent_usd, 4),
+                    "paid_only": b.paid_only,
+                    "credit_left_usd": (
+                        None if b.credit_left_usd is None else round(b.credit_left_usd, 2)
+                    ),
+                    "credit_source": b.credit_source,
+                    "credit_as_of": _iso(b.credit_as_of),
+                    "use_credits": b.use_credits,
                     "daily_h": daily_usage(ctx.db.ledger(b.name), now),
                 }
                 for b in backend_rows(controller, now)

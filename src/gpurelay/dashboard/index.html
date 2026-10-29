@@ -229,7 +229,8 @@ function when(iso) {
 }
 function backendLabel(name, gpu) {
   if (!name) return "–";
-  const nice = {kaggle: "Kaggle", colab_manual: "Colab", colab: "Colab", local: "This computer", lightning: "Lightning AI", modal: "Modal"}[name] || name;
+  const nice = {kaggle: "Kaggle", colab_manual: "Colab", colab: "Colab", local: "This computer", lightning: "Lightning AI", modal: "Modal",
+    runpod: "RunPod", vastai: "Vast.ai", lambda: "Lambda", digitalocean: "DigitalOcean", aws: "AWS", gcp: "Google Cloud", azure: "Azure"}[name] || name;
   return gpu ? `${nice} ${gpu.replace("NvidiaTesla", "").replace("Tesla ", "")}` : nice;
 }
 async function api(url, options) {
@@ -417,12 +418,21 @@ function paidLine(b) {
     ? `Paid after free: $${b.paid_usd_per_h.toFixed(2)}/h · $${b.paid_spent_usd.toFixed(2)} of $${b.paid_cap_usd.toFixed(2)} this month`
     : `Paid after free: off (monthly limit $0)`;
 }
+function creditFoot(b) {
+  const where = b.credit_source === "platform" ? `from ${backendLabel(b.name)}` : "estimated";
+  const price = b.paid_usd_per_h ? ` · $${b.paid_usd_per_h.toFixed(2)}/h` : " · price not known yet";
+  return `${where}${price}${b.use_credits ? "" : " · not used (off)"}`;
+}
 function budgetCards() {
   return el("section", {class: "cards3", "aria-label": "GPU budget"}, overview.backends.map((b) => {
     let big, bar = null, foot;
     if (b.hold) {
       big = el("span", {class: "big"}, "Unavailable ", el("span", {text: "$0 usable now"}));
       foot = b.hold;
+    } else if (b.paid_only) {
+      big = b.credit_left_usd === null ? el("span", {class: "big"}, "Credit ", el("span", {text: "not entered"}))
+        : el("span", {class: "big"}, `$${b.credit_left_usd.toFixed(2)} `, el("span", {text: "credit left"}));
+      foot = b.credit_left_usd === null ? "Enter it on Your GPU platforms" : creditFoot(b);
     } else if (b.budget_h) {
       const left = Math.max(0, b.remaining_h ?? 0);
       big = el("span", {class: "big"}, `${money(b, left)} `, el("span", {text: `of ${money(b, b.budget_h)} left`}));
@@ -437,7 +447,7 @@ function budgetCards() {
       foot = "No fixed limit";
     }
     return el("a", {class: "bcard", href: "#/budget"},
-      el("span", {class: "top"}, el("span", {text: backendLabel(b.name, b.gpu)}), el("span", {text: b.budget_h ? period(b) : b.automated ? "unlimited" : "manual"})),
+      el("span", {class: "top"}, el("span", {text: backendLabel(b.name, b.gpu)}), el("span", {text: b.paid_only ? "your credit" : b.budget_h ? period(b) : b.automated ? "unlimited" : "manual"})),
       big, bar, el("span", {class: "small muted", text: foot}),
       paidLine(b) ? el("span", {class: "small muted", text: paidLine(b)}) : null);
   }));
@@ -810,21 +820,24 @@ function budgetView() {
   const sections = overview.backends.map((b) => {
     const title = el("div", {style: "display:flex;flex-wrap:wrap;align-items:baseline;gap:12px"},
       el("h2", {style: "margin-right:auto", text: backendLabel(b.name, b.gpu)}),
-      el("span", {class: "small muted", text: !b.budget_h ? (b.automated ? "no fixed limit" : "manual, no fixed quota")
+      el("span", {class: "small muted", text: b.paid_only ? "your paid platform: credit first, then card within your limit" : !b.budget_h ? (b.automated ? "no fixed limit" : "manual, no fixed quota")
         : b.model === "monthly" ? `${money(b, b.budget_h)} per month` : b.model === "daily" ? `${money(b, b.budget_h)} per day`
         : `rolling 7-day window · ${hours(b.budget_h)}`}));
     const nums = el("div", {style: "display:flex;flex-wrap:wrap;gap:28px"},
       stat("Used", hours(b.used_h), "last 7 days"),
       b.budget_h ? stat("Left", money(b, Math.max(0, b.remaining_h ?? 0)), (b.unit !== "h" ? `≈ ${hours(Math.max(0, b.remaining_h ?? 0))} · ` : "") + (b.estimated ? "estimated" : "corrected by you")) : null,
       b.next_reset ? stat("Next hours free up", when(b.next_reset), "") : null,
-      b.paid_usd_per_h ? stat("Paid this month", `$${b.paid_spent_usd.toFixed(2)}`, b.paid_cap_usd > 0 ? `limit $${b.paid_cap_usd.toFixed(2)} · $${b.paid_usd_per_h.toFixed(2)}/h` : "limit $0: paid use is off") : null);
+      b.paid_only ? stat("Credit left", b.credit_left_usd === null ? "not entered" : `$${b.credit_left_usd.toFixed(2)}`,
+        b.credit_left_usd === null ? "Your GPU platforms" : `${creditFoot(b)}${b.credit_as_of ? ` · since ${when(b.credit_as_of)}` : ""}`) : null,
+      b.paid_usd_per_h ? stat(b.paid_only ? "Card this month" : "Paid this month", `$${b.paid_spent_usd.toFixed(2)}`, b.paid_cap_usd > 0 ? `limit $${b.paid_cap_usd.toFixed(2)} · $${b.paid_usd_per_h.toFixed(2)}/h` : "limit $0: card use is off") : null);
     const max = Math.max(0.1, ...b.daily_h);
     const dayNames = b.daily_h.map((_, i) => i === 6 ? "Today" : new Date(Date.now() - (6 - i) * 86400000).toLocaleDateString(undefined, {weekday: "short"}));
     const chart = el("div", {},
       el("div", {class: "chart", role: "img", "aria-label": `GPU hours per day: ${b.daily_h.map((h, i) => `${dayNames[i]} ${h.toFixed(1)}`).join(", ")}`},
         b.daily_h.map((h, i) => el("span", {class: i === 6 ? "today" : "", style: `height:${(100 * h) / max}%`, title: `${dayNames[i]}: ${hours(h)}`}))),
       el("div", {class: "days"}, dayNames.map((d) => el("span", {text: d}))));
-    const correct = owner() && b.budget_h ? el("form", {style: "display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;padding-top:14px;border-top:1px solid var(--line-soft)",
+    const correct = owner() && b.paid_only && me.platforms_url ? el("p", {}, el("a", {class: "btn", href: me.platforms_url}, "Update credit or limits"))
+      : owner() && b.budget_h ? el("form", {style: "display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;padding-top:14px;border-top:1px solid var(--line-soft)",
       onsubmit: async (ev) => {
         ev.preventDefault();
         const input = ev.currentTarget.querySelector("input"), msg = ev.currentTarget.querySelector(".msg");
@@ -843,7 +856,7 @@ function budgetView() {
     return el("section", {class: "card", "aria-label": backendLabel(b.name)}, title, hold, nums, chart, correct);
   });
   render(el("header", {class: "page"}, el("div", {}, el("h1", {text: "GPU budget"}),
-    el("p", {class: "muted", text: "Free first: free GPU hours and free credits, then Colab. Paid GPU time only within limits you set; every limit is $0 until you raise it, so nothing is ever charged."}))),
+    el("p", {class: "muted", text: "Free first: free GPU hours and free credits, then Colab, then credit you bought on your own platforms (cheapest first, never past what is left). Card spending only within limits you set; every card limit is $0 until you raise it."}))),
     sections.length ? sections : el("div", {class: "card empty", text: "No GPU platforms are set up."}));
 }
 
@@ -869,7 +882,9 @@ async function settingsView() {
       el("dt", {text: "Holds"}), el("dd", {text: "jobs, checkpoints, logs, outputs, and the server's job list backup"}))),
     el("section", {class: "card"}, el("h2", {text: "GPU platforms"}), el("div", {class: "scroll"}, el("table", {},
       el("thead", {}, el("tr", {}, ["Platform", "State", "Details", "Credentials"].map((t) => el("th", {scope: "col", text: t})))),
-      el("tbody", {}, rows)))),
+      el("tbody", {}, rows))),
+      me.platforms_url && owner() ? el("p", {}, el("a", {class: "btn", href: me.platforms_url}, "Your GPU platforms"), " ",
+        el("span", {class: "small muted", text: "Tell GPU Relay which clouds and free platforms you have, or add one where you bought credits. Nothing you saved before is lost."})) : null),
     el("section", {class: "card"}, el("h2", {text: "Access"}), el("dl", {class: "kv"},
       el("dt", {text: "You are"}), el("dd", {text: me.anonymous ? "a guest (read-only)" : me.login ? (owner() ? "the owner" : "a viewer (read-only)") : "on this computer"}),
       el("dt", {text: "Login"}), el("dd", {text: !s.server ? "none (local only)" : s.public_view
@@ -949,6 +964,7 @@ async function busy(button, label, work) {
 }
 async function setupView() {
   const st = await api("api/desktop/status");
+  if (!wizStep && !st.platforms_asked && !st.configured) { location.href = "platforms"; return; }  // asked once, first
   if (!wizStep) wizStep = st.configured && st.mode === "local" ? "done" : "where";
   const steps = el("ol", {class: "steps", "aria-label": "Setup steps"}, STEPS.map(([id, label], i) => el("li", {},
     el("button", {type: "button", "aria-current": wizStep === id ? "step" : null, onclick: () => wizGo(id)},

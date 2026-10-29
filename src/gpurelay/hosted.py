@@ -229,8 +229,14 @@ def watch_stop_file(home: Path, poll_s: float = 0.5, name: str = STOP_FILENAME) 
             if stop.exists():
                 stop.unlink(missing_ok=True)
                 # A real SIGINT (not _thread.interrupt_main): on Windows only that also wakes
-                # the main thread from time.sleep at once.
-                signal.raise_signal(signal.SIGINT)
+                # the main thread from time.sleep at once. raise_signal targets the calling
+                # thread, so elsewhere the signal goes to the main thread itself (or its
+                # sleep would not end).
+                main = threading.main_thread().ident
+                if hasattr(signal, "pthread_kill") and main is not None:
+                    signal.pthread_kill(main, signal.SIGINT)
+                else:
+                    signal.raise_signal(signal.SIGINT)
                 return
             time.sleep(poll_s)
 
@@ -244,7 +250,7 @@ def spawn_controller(cmd: Sequence[str], log_path: Path | None = None) -> subpro
     ``log_path`` when given, else to this process's output."""
     kwargs: dict[str, object] = {}
     if os.name == "nt":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     if log_path is not None:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         out = open(log_path, "ab")  # noqa: SIM115 - the child owns it from here

@@ -34,10 +34,52 @@ class BackendSlot:
     # owner's monthly limit for it (0: never pay).
     paid_usd_per_h: float | None = None
     paid_cap_usd: float = 0.0
+    # Credit the user bought on the platform (spec §21.2): the amount they entered, when, and
+    # whether GPU Relay may spend it. A backend with ``balance_usd()`` reports its own.
+    credit_usd: float | None = None
+    credit_set_at: float | None = None
+    use_credits: bool = True
+    paid_only: bool = False  # no free hours at all (the user's paid platforms, spec §21)
     # Manual backends: asked before the automated ones, and how long a request waits for
     # the user before the job goes elsewhere (None: it waits until the user acts).
     first: bool = False
     user_wait_s: float | None = None
+
+
+def _cloud_slots(config: Config, storage: Storage, slots: dict[str, BackendSlot]) -> None:
+    """The user's paid platforms (spec §21): no free hours, only their credit and card."""
+    from gpurelay.backends.cloud import CloudBackend
+    from gpurelay.backends.providers import make_provider
+    from gpurelay.config import CLOUD_FIELDS
+
+    for platform_id, field_name in CLOUD_FIELDS.items():
+        settings = getattr(config.backends, field_name)
+        if not settings.enabled:
+            continue
+        provider = make_provider(platform_id, settings)
+        slots[platform_id] = BackendSlot(
+            name=platform_id,
+            backend=CloudBackend(
+                name=platform_id,
+                settings=settings,
+                runtime=config.runtime,
+                storage_uri=_storage_uri(storage),
+                wheel_for=_wheel_reader(storage),
+                provider=provider,
+            ),
+            budget=Budget(BudgetModel.MONTHLY, 0.0, estimate=False, unit="usd"),
+            automated=True,
+            max_concurrent=settings.max_concurrent,
+            max_session_s=settings.max_session_s,
+            gpu_label=provider.gpu_label,
+            speed=speed_of(provider.gpu_label),
+            paid_usd_per_h=settings.usd_per_hour,  # else read from the platform
+            paid_cap_usd=settings.monthly_paid_cap_usd,
+            credit_usd=settings.credit_usd,
+            credit_set_at=settings.credit_set_at,
+            use_credits=settings.use_credits,
+            paid_only=True,
+        )
 
 
 def build_backends(config: Config, storage: Storage, sessions_root: Path) -> dict[str, BackendSlot]:
@@ -112,6 +154,9 @@ def build_backends(config: Config, storage: Storage, sessions_root: Path) -> dic
             speed=speed_of(sim.gpu_label),
             paid_usd_per_h=sim.paid_usd_per_h,
             paid_cap_usd=sim.monthly_paid_cap_usd,
+            credit_usd=sim.credit_usd,
+            credit_set_at=sim.credit_set_at,
+            use_credits=sim.use_credits,
         )
     kaggle = config.backends.kaggle
     if kaggle.enabled:
@@ -189,6 +234,7 @@ def build_backends(config: Config, storage: Storage, sessions_root: Path) -> dic
             paid_usd_per_h=modal.usd_per_hour,
             paid_cap_usd=modal.monthly_paid_cap_usd,
         )
+    _cloud_slots(config, storage, slots)
     colab = config.backends.colab_manual
     if colab.enabled:
         from gpurelay.backends.colab_manual import ColabManualBackend

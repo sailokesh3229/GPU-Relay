@@ -69,8 +69,11 @@ from gpurelay.storage.layout import control_key, segment_log_key, worker_status_
 
 log = logging.getLogger(__name__)
 
+_CO_OPTIMIZED = 0x0001  # inspect.CO_OPTIMIZED: the code object of a function
+
 REGISTRY_PREFIX = "relay:"
 LOCAL_PREFIX = "local:"  # "local:<loop key>|<name>": a local of a function with a loop
+CALLER_MARK = "^"  # "<loop key>^<n>": the job's function n calls above it
 FRAMEWORK_DIR = "framework"
 
 
@@ -474,7 +477,7 @@ class RelaySession:
         combined: dict[str, Any] = dict(ns)
         for name, value in self.registry.items():
             combined[REGISTRY_PREFIX + name] = value
-        frames = dict(self._frames)
+        frames = self._live_frames()
         for key, (frame, _names) in frames.items():
             for name, value in dict(frame.f_locals).items():
                 combined[f"{LOCAL_PREFIX}{key}|{name}"] = value
@@ -545,6 +548,27 @@ class RelaySession:
             loop = self._auto_loop(loop_id, iterable)
             return self._with_frame(key, frame, local_names, loop)
         return self._auto_loop(loop_id, iterable)
+
+    def _live_frames(self) -> dict[str, tuple[types.FrameType, tuple[str, ...] | None]]:
+        """The frames whose locals a snapshot holds: each running function with an
+        instrumented loop, and above it the job's own functions that called it (``None``:
+        all their locals). A caller's locals hold what earlier calls returned (``history =
+        train()`` in ``main``), which a resume does not recompute: the loops that made it
+        ended before the checkpoint, so replay skips them."""
+        frames: dict[str, tuple[types.FrameType, tuple[str, ...] | None]] = dict(self._frames)
+        seen = {id(frame) for frame, _names in self._frames.values()}
+        for key, (frame, _names) in self._frames.items():
+            caller, depth = frame.f_back, 1
+            while (
+                caller is not None
+                and caller.f_globals is frame.f_globals  # the job's code, not a library's
+                and caller.f_code.co_flags & _CO_OPTIMIZED  # a function, not module level
+                and id(caller) not in seen
+            ):
+                seen.add(id(caller))
+                frames[f"{key}{CALLER_MARK}{depth}"] = (caller, None)
+                caller, depth = caller.f_back, depth + 1
+        return frames
 
     def _with_frame(
         self, key: str, frame: types.FrameType, names: tuple[str, ...], loop: Iterator[Any]
@@ -990,9 +1014,9 @@ class RelaySession:
                 and (is_torch_stateful(value) or is_rng_object(value) or is_stateful_closure(value))
             ):
                 selected[name] = value
-        for key, (frame, local_names) in self._frames.items():
+        for key, (frame, local_names) in self._live_frames().items():
             local_ns = dict(frame.f_locals)
-            wanted = set(local_names)
+            wanted = set(local_ns if local_names is None else local_names)
             for name, value in local_ns.items():
                 if skip_reason(name, value) is None and (
                     name in wanted

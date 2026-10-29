@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from enum import Enum, IntEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -212,8 +213,10 @@ class Segment(_Model):
     message: str = ""
     # "main" runs the job; a "worker" only computes chunks of a parallel region (Phase 9).
     role: str = "main"
-    # Set when the segment runs on paid GPU time: its price, so its cost is known.
+    # Set when the segment runs on paid GPU time: its price, so its cost is known, and what
+    # pays it: credit the user bought on the platform, or their card (spec §21.3).
     paid_usd_per_h: float | None = Field(default=None, gt=0)
+    paid_from: Literal["credit", "card"] | None = None
     region: str | None = None  # worker: id of the parallel chunks region it helps with
 
 

@@ -15,8 +15,10 @@ is used to detect finished and crashed sessions.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import math
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
@@ -28,13 +30,19 @@ from gpurelay.backends.local import is_runtime_exit
 from gpurelay.config import Config, RuntimeSettings
 from gpurelay.constants import BUDGET_LOW_FRACTION
 from gpurelay.controller.assemble import assemble
+from gpurelay.controller.credits import (
+    LOW_FRACTION,
+    CreditState,
+    card_spent_this_month,
+    credit_state,
+)
 from gpurelay.controller.db import StateDB
 from gpurelay.controller.lease import ControllerLease, LeaseLostError
 from gpurelay.controller.notify import Notifier
 from gpurelay.controller.quota import LiveUsage, QuotaLedger, QuotaState
 from gpurelay.controller.registry import BackendSlot
 from gpurelay.controller.scheduler import BackendView, JobView, deadline_for, plan
-from gpurelay.controller.spend import backend_spent_this_month, job_spent
+from gpurelay.controller.spend import job_spent
 from gpurelay.errors import BackendBusyError
 from gpurelay.models import (
     BackendRunState,
@@ -55,6 +63,8 @@ from gpurelay.storage.layout import control_key, status_key, worker_status_key
 # A platform that refuses to start a session is not used for a while. Account problems (a
 # missing payment method, a revoked token) need the owner, so they wait longer.
 LAUNCH_HOLD_S = 30 * 60.0
+BALANCE_REFRESH_S = 600.0  # ask a paid platform for its balance at most this often
+SWEEP_S = 300.0  # look for machines no live segment owns this often
 ACCOUNT_HOLD_S = 6 * 3600.0
 ACCOUNT_PROBLEMS = (
     "payment",
@@ -126,6 +136,10 @@ class Controller:
         self.clock = clock
         self.quota = QuotaLedger(db)
         self._budget_warned: set[str] = set()
+        self._credit_warned: dict[str, str] = {}  # backend -> "low" | "empty" already said
+        self._balances: dict[str, tuple[float, float]] = {}  # backend -> (USD, when)
+        self._balance_checked: dict[str, float] = {}
+        self._swept_at = -math.inf
         # segment id -> (last heartbeat value seen, local time it was first seen). Staleness
         # is measured on this machine's clock only, so remote clock skew cannot fake it.
         self._beats: dict[str, tuple[datetime, float]] = {}
@@ -146,6 +160,7 @@ class Controller:
         self._schedule(now)
         self._launch_workers(now)
         self._check_budgets(now)
+        self._sweep_machines(now)
 
     def busy(self) -> bool:
         """Work left that the controller can make progress on by itself."""
@@ -304,6 +319,15 @@ class Controller:
         status = self._read_status(seg.job_id, seg)
         if status is not None and status.segment_id != seg.id:
             status = None
+        if (
+            state is BackendRunState.RUNNING
+            and getattr(slot.backend, "deletes_machines", False)
+            and status is not None
+            and status.state is not RuntimeState.RUNNING
+        ):
+            # A paid machine whose segment is over: finish now (it may stay up, and bill,
+            # after its work ends); closing the segment deletes it.
+            state = BackendRunState.UNKNOWN  # fmt: skip
         if state is BackendRunState.QUEUED:
             return  # waiting in the platform's queue: no heartbeat expected yet
         if state is BackendRunState.RUNNING:
@@ -423,6 +447,10 @@ class Controller:
             self.db.record_checkpoint(
                 seg.job_id, pointer.seq, pointer.segment_id, pointer.created_at
             )
+        slot = self.backends.get(seg.backend)
+        if (slot is not None and getattr(slot.backend, "deletes_machines", False)
+                and seg.handle_id):  # fmt: skip
+            slot.backend.cancel(self._handle(seg))  # nothing may keep billing
         seg = seg.model_copy(
             update={
                 "state": _OUTCOME_STATE[outcome],
@@ -526,6 +554,12 @@ class Controller:
         active = self.db.active_segments()
         views = []
         for slot in self.backends.values():
+            price = getattr(slot.backend, "price_usd_per_h", None)
+            if price is not None:  # a paid platform's price (cached by the backend)
+                try:
+                    slot.paid_usd_per_h = price() or slot.paid_usd_per_h
+                except Exception as exc:
+                    log.warning("could not read the %s price: %s", slot.name, exc)
             quota = self.quota_state(slot, now)
             try:
                 ready = slot.backend.check_ready().ready
@@ -544,7 +578,7 @@ class Controller:
                     running=sum(1 for s in active if s.backend == slot.name),
                     max_session_s=slot.max_session_s,
                     gpu_label=slot.gpu_label,
-                    next_reset=quota.next_reset,
+                    next_reset=None if slot.paid_only else quota.next_reset,
                     budget_model=slot.budget.model.value,
                     speed=slot.speed,
                     paid_usd_per_h=slot.paid_usd_per_h,
@@ -552,11 +586,12 @@ class Controller:
                     paid_left_usd=(
                         max(
                             0.0,
-                            slot.paid_cap_usd - backend_spent_this_month(self.db, slot.name, now),
+                            slot.paid_cap_usd - card_spent_this_month(self.db, slot.name, now),
                         )
                         if slot.paid_usd_per_h
                         else 0.0
                     ),
+                    credit_left_usd=self._usable_credit(slot, now),
                 )
             )
         return views
@@ -585,7 +620,7 @@ class Controller:
             if decision.action in ("launch", "await_user"):
                 assert decision.backend is not None and decision.deadline_s is not None
                 self._launch(job, self.backends[decision.backend], decision.deadline_s, now,
-                             paid=decision.paid)  # fmt: skip
+                             paid=decision.paid, paid_from=decision.paid_from)  # fmt: skip
             elif decision.action == "wait_quota":
                 if job.state is not JobState.WAITING_FOR_QUOTA:
                     when = decision.wait_until.isoformat() if decision.wait_until else "unknown"
@@ -600,8 +635,9 @@ class Controller:
                 self._set_job(job, JobState.QUEUED, now, "waiting for a free backend slot")
 
     def _launch(
-        self, job: Job, slot: BackendSlot, deadline_s: float, now: float, *, paid: bool = False
-    ) -> None:
+        self, job: Job, slot: BackendSlot, deadline_s: float, now: float, *, paid: bool = False,
+        paid_from: str | None = None,
+    ) -> None:  # fmt: skip
         pointer = read_pointer(self.storage, job.id)
         segments = self.db.segments(job.id)
         seg = Segment(
@@ -614,6 +650,7 @@ class Controller:
             deadline_at=_dt(now) + timedelta(seconds=deadline_s),
             start_checkpoint_seq=pointer.seq if pointer else None,
             paid_usd_per_h=slot.paid_usd_per_h if paid else None,
+            paid_from=("credit" if paid_from == "credit" else "card") if paid else None,
         )
         self.db.put_segment(seg)
         self.storage.delete(control_key(job.id))
@@ -636,13 +673,16 @@ class Controller:
             }))  # fmt: skip
             return
         manual = not slot.automated
-        seg = seg.model_copy(
-            update={
-                "handle_id": handle.handle_id,
-                "handle_extra": dict(handle.extra),
-                "state": SegmentState.AWAITING_USER if manual else SegmentState.RUNNING,
-            }
-        )
+        update: dict[str, Any] = {
+            "handle_id": handle.handle_id,
+            "handle_extra": dict(handle.extra),
+            "state": SegmentState.AWAITING_USER if manual else SegmentState.RUNNING,
+        }
+        actual = handle.extra.get("usd_per_h")
+        if paid and actual:  # what this machine really costs (a marketplace offer)
+            with contextlib.suppress(ValueError):
+                update["paid_usd_per_h"] = float(actual)
+        seg = seg.model_copy(update=update)
         self.db.put_segment(seg)
         if manual:
             self._set_job(job, JobState.AWAITING_USER, now, f"open the session on {slot.name}")
@@ -652,7 +692,9 @@ class Controller:
             )  # fmt: skip
         else:
             where = f"segment {seg.index} on {slot.name}"
-            if paid:
+            if paid and paid_from == "credit":
+                where += f" (your credit, ${slot.paid_usd_per_h:.2f}/h)"
+            elif paid:
                 where += f" (paid, ${slot.paid_usd_per_h:.2f}/h)"
                 self.notifier.notify(
                     "paid_gpu", f"job {job.name} is using paid GPU time",
@@ -740,7 +782,92 @@ class Controller:
 
     # ------------------------------------------------------------------ 5. budgets
 
+    # ------------------------------------------------------------------ paid machines
+
+    def _sweep_machines(self, now: float) -> None:
+        """Delete paid machines GPU Relay started that no live segment owns (spec §21.3)."""
+        if now - self._swept_at < SWEEP_S:
+            return
+        self._swept_at = now
+        active = self.db.active_segments()
+        for slot in self.backends.values():
+            sweep = getattr(slot.backend, "sweep", None)
+            if sweep is None:
+                continue
+            keep = {s.handle_id for s in active if s.backend == slot.name and s.handle_id}
+            try:
+                deleted = sweep(keep)
+            except Exception as exc:
+                log.warning("could not check %s for leftover machines: %s", slot.name, exc)
+                continue
+            for machine_id in deleted:
+                text = f"{slot.name}: deleted leftover machine {machine_id}"
+                self.db.add_event("machine_deleted", text, now=now)
+
+    # ------------------------------------------------------------------ credits (spec §21.2)
+
+    def credit(self, slot: BackendSlot, now: float) -> CreditState | None:
+        """Credit left on ``slot``'s platform: its own balance if it reports one, else the
+        amount the user entered minus what GPU Relay measured since."""
+        return credit_state(self.db, slot.name, now, entered_usd=slot.credit_usd,
+                            entered_at=slot.credit_set_at,
+                            balance=self._balance(slot, now))  # fmt: skip
+
+    def _balance(self, slot: BackendSlot, now: float) -> tuple[float, float] | None:
+        reader = getattr(slot.backend, "balance_usd", None)
+        if reader is None:
+            return None
+        if now - self._balance_checked.get(slot.name, -math.inf) >= BALANCE_REFRESH_S:
+            self._balance_checked[slot.name] = now
+            try:
+                value = reader()
+            except Exception as exc:  # keep the last known figure
+                log.warning("could not read the %s balance: %s", slot.name, exc)
+            else:
+                if value is not None:
+                    self._balances[slot.name] = (float(value), now)
+        return self._balances.get(slot.name)
+
+    def _usable_credit(self, slot: BackendSlot, now: float) -> float:
+        if not slot.paid_usd_per_h or not slot.use_credits:
+            return 0.0
+        state = self.credit(slot, now)
+        return state.left_usd if state is not None else 0.0
+
+    def _check_credits(self, now: float) -> None:
+        """Tell the user once when a platform's credit gets low, and when it runs out."""
+        for slot in self.backends.values():
+            if not slot.paid_usd_per_h:
+                continue
+            state = self.credit(slot, now)
+            if state is None:
+                continue
+            minimum = slot.paid_usd_per_h * self.config.scheduler.min_segment_h
+            if state.left_usd < minimum:
+                level: str | None = "empty"
+            elif state.left_usd < LOW_FRACTION * state.start_usd:
+                level = "low"
+            else:
+                level = None
+            said = self._credit_warned.get(slot.name)
+            if level is None:
+                self._credit_warned.pop(slot.name, None)
+                continue
+            if level == said or (level == "low" and said == "empty"):
+                continue
+            self._credit_warned[slot.name] = level
+            where = f"from {slot.name}" if state.source == "platform" else "estimated"
+            what = "used up" if level == "empty" else "low"
+            left = f"${state.left_usd:.2f} left"
+            if level == "empty":
+                left += ", less than one session"
+            self.notifier.notify(
+                "credit_low", f"{slot.name} credit {what}",
+                f"{left} ({where}). Add credit there, then update it on Your GPU platforms.",
+            )  # fmt: skip
+
     def _check_budgets(self, now: float) -> None:
+        self._check_credits(now)
         for slot in self.backends.values():
             if slot.budget.hours is None:
                 continue

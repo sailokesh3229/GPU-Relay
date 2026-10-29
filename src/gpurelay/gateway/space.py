@@ -109,6 +109,28 @@ class UserSpaces:
         except VaultError:
             return False
 
+    def platform_env(self, user_id: str) -> dict[str, str]:
+        """The credentials of the paid platforms this user turned on (spec §21), as their
+        environment variables. Platforms that are off get nothing, even if keys are saved."""
+        from gpurelay.config import CLOUD_FIELDS
+        from gpurelay.platforms.catalog import BY_ID, platform_env, secret_names
+
+        config, env = self.config(user_id), {}
+        for platform_id in CLOUD_FIELDS:
+            if not config.backends.cloud(platform_id).enabled:
+                continue
+            values: dict[str, str] = {}
+            for name in secret_names(BY_ID[platform_id]):
+                sealed = self.store.secret(user_id, name)
+                if sealed is None:
+                    continue
+                try:
+                    values[name] = self.vault.open(user_id, name, sealed)
+                except VaultError:
+                    continue
+            env.update(platform_env(platform_id, values))
+        return env
+
     def config(self, user_id: str) -> Config:
         raw = self.store.settings(user_id)
         return server_rules(Config.model_validate_json(raw) if raw else Config())

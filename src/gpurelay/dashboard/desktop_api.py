@@ -95,6 +95,12 @@ def _set_secret(name: str, value: str) -> bool:
     return set_secret(name, value)
 
 
+def _delete_secret(name: str) -> None:
+    from gpurelay.credentials import delete_secret
+
+    delete_secret(name)
+
+
 def _kaggle_present() -> bool:
     from gpurelay.credentials import kaggle_credentials_present
 
@@ -122,6 +128,7 @@ class SetupDeps:
     kaggle_present: Callable[[], bool] = _kaggle_present
     get_secret: Callable[[str, str], str | None] = _get_secret
     set_secret: Callable[[str, str], bool] = _set_secret
+    delete_secret: Callable[[str], None] = _delete_secret
     modal_config_path: Callable[[], Path] = _modal_config_path
     modal_present: Callable[[], bool] = _modal_present
 
@@ -210,6 +217,21 @@ def desktop_router(hooks: DesktopHooks, deps: SetupDeps | None = None) -> APIRou
         except GpuRelayError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    from gpurelay.platforms.local import LocalPlatformStore
+    from gpurelay.platforms.routes import platforms_router
+
+    platform_store = LocalPlatformStore(
+        home,
+        get_secret,
+        set_secret,
+        deps.delete_secret,
+        kaggle_present,
+        deps.modal_present,
+        reconfigured=hooks.reconfigured,
+    )
+    router.include_router(platforms_router(lambda _request: platform_store,
+                                           action_header=ACTION_HEADER))  # fmt: skip
+
     @router.get("/api/desktop/status")
     def status() -> dict[str, Any]:
         from gpurelay.credentials import HF_TOKEN
@@ -246,7 +268,14 @@ def desktop_router(hooks: DesktopHooks, deps: SetupDeps | None = None) -> APIRou
             "packaged": hooks.packaged(),
             "start_menu": hooks.start_menu(),
             "update": hooks.update_info(),
+            "platforms_asked": platforms_asked(),
         }
+
+    def platforms_asked() -> bool:
+        try:
+            return platform_store.load().asked_at is not None
+        except GpuRelayError:  # a damaged answers file: do not ask again over it
+            return True
 
     @router.post("/api/setup/server")
     async def setup_server(

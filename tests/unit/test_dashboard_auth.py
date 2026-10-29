@@ -79,6 +79,7 @@ def test_owner_can_act_viewer_can_only_read(setup: tuple[TestClient, Harness]) -
         "anonymous": False,
         "desktop": False,
         "configured": True,
+        "platforms_url": None,
     }
     assert client.get("/api/overview").status_code == 200
     assert client.get(f"/api/jobs/{job.id}").status_code == 200
@@ -199,6 +200,7 @@ def test_public_view_lets_guests_look_but_never_act(tmp_path: Path) -> None:
         "anonymous": True,
         "desktop": False,
         "configured": True,
+        "platforms_url": None,
     }
     assert client.get("/api/overview").status_code == 200
     assert client.get(f"/api/jobs/{job.id}").status_code == 200
@@ -215,6 +217,7 @@ def test_public_view_lets_guests_look_but_never_act(tmp_path: Path) -> None:
         "anonymous": False,
         "desktop": False,
         "configured": True,
+        "platforms_url": None,
     }
     assert client.post(f"/api/jobs/{job.id}/pause", headers=ACT).status_code == 200
 

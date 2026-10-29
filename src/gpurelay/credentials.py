@@ -58,6 +58,17 @@ def set_secret(name: str, value: str) -> bool:
     return True
 
 
+def delete_secret(name: str) -> None:
+    """Remove a secret from the OS keyring (nothing happens if it is not there)."""
+    kr = _keyring()
+    if kr is None:
+        return
+    try:
+        kr.delete_password(KEYRING_SERVICE, name)  # type: ignore[attr-defined]
+    except Exception as exc:  # PasswordDeleteError when absent
+        log.debug("keyring delete of %s: %s", name, exc)
+
+
 def hf_token() -> str | None:
     """Hugging Face token for the relay storage repo (``HF_TOKEN`` or keyring)."""
     return get_secret(HF_TOKEN, "HF_TOKEN")

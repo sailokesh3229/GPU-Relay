@@ -61,7 +61,7 @@ PUBLIC_PATHS = frozenset(
     {"/", "/signin", "/signup", "/healthz", "/api/me", "/verify", "/forgot", "/reset"}
 )
 # With email on, these wait until the user confirmed their address.
-NEEDS_VERIFIED = ("/setup", "/api/setup", "/app")
+NEEDS_VERIFIED = ("/setup", "/api/setup", "/app", "/platforms", "/api/platforms")
 HEADERS = {
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; "
     "style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; "
@@ -203,7 +203,7 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
                     response = RedirectResponse("/signin", status_code=303)
             elif (user is not None and settings.mailer is not None and not user.email_verified
                   and path.startswith(NEEDS_VERIFIED)):  # fmt: skip
-                if is_api or path.startswith("/api/setup"):
+                if is_api or path.startswith(("/api/setup", "/api/platforms")):
                     response = JSONResponse({"detail": "confirm your email first"}, 403)
                 else:
                     response = RedirectResponse("/account?e=verify", status_code=303)
@@ -224,10 +224,13 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
         return set_session(response, signer.issue(user.id, user.session_epoch),
                            int(signer.session_s))  # fmt: skip
 
-    def start_path(user: User) -> str:
-        """Where a signed-in user goes: setup until it is complete, then their GPU Relay."""
+    def start_path(user: User, ask: bool = True) -> str:
+        """Where a signed-in user goes: the GPU platform questions once (spec §21.1), setup
+        until it is complete, then their GPU Relay."""
         if settings.spaces is None:
             return "/account"
+        if ask and settings.spaces.config(user.id).platforms.asked_at is None:
+            return "/platforms"
         if not settings.spaces.ready(user.id):
             return "/setup"
         return "/app/" if children is not None else "/setup"
@@ -349,6 +352,26 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
                 children.restart(user_id)  # a running GPU Relay picks up the change
 
         app.include_router(setup_router(settings.spaces, after_change))
+
+        from gpurelay.gateway.platforms import WebsitePlatformStore
+        from gpurelay.platforms.routes import platforms_router
+
+        spaces = settings.spaces
+        platform_limiter = RateLimiter(per_client=60, total=3000, window_s=3600.0)
+
+        def platform_store(request: Request) -> WebsitePlatformStore:
+            user: User = request.state.user
+            return WebsitePlatformStore(spaces, user.id, lambda: start_path(user, ask=False),
+                                        after_change)  # fmt: skip
+
+        def too_many(request: Request) -> bool:
+            user_id = str(request.state.user.id)
+            if platform_limiter.blocked(user_id):
+                return True
+            platform_limiter.failed(user_id)  # every change counts
+            return False
+
+        app.include_router(platforms_router(platform_store, too_many=too_many))
 
     if children is not None:
         from gpurelay.gateway.proxy import app_router

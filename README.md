@@ -74,7 +74,14 @@ Nobody sees anyone else's jobs or tokens, and the server holds no platform token
 
 **What each user needs** (the site lists it too; details in [docs/multi-user.md](docs/multi-user.md)):
 
-1. a GPU Relay account (email, a password of 12+ characters, the invite code if asked);
+1. a GPU Relay account (email, a password of 12+ characters, the invite code if asked).
+   At first sign-in, **Your GPU platforms** asks which hyperscalers (Google Cloud, AWS,
+   Azure), GPU clouds (RunPod, Vast.ai, Lambda, DigitalOcean, ...) and free platforms you
+   have; skip it or change it later from Settings. Nothing saved before is lost. Turn on
+   a paid platform there with its key and the credit you have: GPU Relay uses it after
+   free time, cheapest first, never past the credit (card spending only within a limit
+   you set, $0 by default). These backends are built from each platform's docs and not
+   yet tried on a real account;
 2. a Hugging Face account and a token with **write** access (storage for jobs and checkpoints);
 3. for automatic free GPUs: a Kaggle account with a **verified phone** and its API token;
 4. optional: a Modal account with a payment method and its token ($30 free a month);

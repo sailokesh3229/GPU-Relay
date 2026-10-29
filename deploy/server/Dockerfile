@@ -25,7 +25,7 @@ ENV HOME=/home/relay \
 WORKDIR /home/relay/app
 COPY --chown=relay pyproject.toml README.md ./
 COPY --chown=relay src ./src
-RUN pip install ".[kaggle,dashboard,modal,server]"
+RUN pip install ".[kaggle,dashboard,modal,server,clouds]"
 
 USER relay
 EXPOSE 7860

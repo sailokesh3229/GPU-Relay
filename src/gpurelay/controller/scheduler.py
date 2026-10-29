@@ -17,10 +17,12 @@
       segments (less numeric drift).
 3. If only manual backends (Colab) can take it, the job waits for the user (``awaiting_user``):
    free GPU time always comes before paid.
-4. Paid GPU time (plan P16), only when no free option is left and only within both the
-   job's paid allowance and the platform's monthly paid limit (both $0 by default): the
-   cheapest per unit of work (price / speed). The session ends before it could exceed
-   either limit.
+4. Credit the user bought on a paid platform (spec §21.3), when no free option is left:
+   the cheapest per unit of work (price / speed). It is already paid for, so it needs no
+   job allowance; the session ends before the credit runs out.
+4b. Paid GPU time by card (plan P16), only within both the job's paid allowance and the
+   platform's monthly paid limit (both $0 by default): the cheapest per unit of work. The
+   session ends before it could exceed either limit.
 5. Otherwise the job waits for the earliest reset (``waiting_for_quota``).
 5. Different jobs run in parallel on different backends (or up to ``max_concurrent`` on one);
    a job with a live segment is never scheduled again.
@@ -53,7 +55,8 @@ class BackendView:
     budget_model: str | None = None  # BudgetModel value
     speed: float = 1.0  # relative GPU speed, T4 = 1.0
     paid_usd_per_h: float | None = None  # paid GPU time after the free budget
-    paid_left_usd: float = 0.0  # the platform's monthly paid limit minus this month's spend
+    paid_left_usd: float = 0.0  # the platform's monthly card limit minus this month's card spend
+    credit_left_usd: float = 0.0  # credit the user bought there and allows GPU Relay to use
     first: bool = False  # a manual backend asked before the automated ones
 
     @property
@@ -93,6 +96,7 @@ class Decision:
     wait_until: datetime | None = None
     reason: str = ""
     paid: bool = False  # the session runs on paid GPU time
+    paid_from: str | None = None  # "credit" or "card"
 
 
 def _remaining(backend: BackendView) -> float:
@@ -171,6 +175,21 @@ def plan(
                 )
             )
             continue
+        credit = [
+            b for b in backends
+            if b.automated and b.ready and b.paid_usd_per_h
+            and slots[b.name] < b.max_concurrent
+            and b.credit_left_usd >= b.paid_usd_per_h * min_segment_h
+        ]  # fmt: skip
+        if credit:
+            chosen = min(credit, key=lambda b: ((b.paid_usd_per_h or 0) / b.speed, b.name))
+            slots[chosen.name] += 1
+            hours = chosen.credit_left_usd / (chosen.paid_usd_per_h or 1)
+            deadline = min(chosen.max_session_s, hours * 3600)
+            decisions.append(Decision(job.id, "launch", chosen.name, deadline,
+                                      reason="your credit there", paid=True,
+                                      paid_from="credit"))  # fmt: skip
+            continue
         paid = [
             b for b in backends
             if b.automated and b.ready and b.paid_usd_per_h
@@ -183,7 +202,8 @@ def plan(
             allowed = min(chosen.paid_left_usd, job.paid_left_usd)
             deadline = min(chosen.max_session_s, allowed / (chosen.paid_usd_per_h or 1) * 3600)
             decisions.append(Decision(job.id, "launch", chosen.name, deadline,
-                                      reason="paid, within your limits", paid=True))  # fmt: skip
+                                      reason="paid, within your limits", paid=True,
+                                      paid_from="card"))  # fmt: skip
             continue
         resets = [b.next_reset for b in backends if b.next_reset is not None and b.ready]
         busy = any(b.ready and b.has_budget(min_segment_h) for b in backends)

@@ -4,6 +4,7 @@ Modal's limits, status mapping, readiness, the terms gate and the dollar budget 
 from __future__ import annotations
 
 import base64
+import importlib.util
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -128,6 +129,9 @@ def test_launch_needs_a_wheel_and_a_token() -> None:
 
 
 def test_readiness(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    real = importlib.util.find_spec  # Modal's SDK need not be installed for this test
+    fake = lambda name, *a: object() if name == "modal" else real(name, *a)  # noqa: E731
+    monkeypatch.setattr(importlib.util, "find_spec", fake)
     backend = _backend(FakeModal())
     assert backend.check_ready().ready
     backend.credentials_present = lambda: False

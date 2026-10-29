@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -36,7 +35,8 @@ class ToolInfo:
 
 def quiet() -> dict[str, Any]:
     """No console window for the tool on Windows (the desktop app has none)."""
-    return {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+    flag = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # Windows only
+    return {"creationflags": flag} if flag else {}
 
 
 def tool_env() -> dict[str, str]:

@@ -115,7 +115,12 @@ _ADDRESS = __import__("re").compile(r"0x[0-9a-fA-F]{6,}")
 def assert_equivalent(expected: RunOutput, actual: RunOutput) -> None:
     """Identical merged log, figures, output files, and notebook outputs."""
     assert notebook_outputs(actual) == notebook_outputs(expected)
-    assert actual.log == expected.log
+    if actual.log != expected.log:
+        import difflib
+
+        diff = difflib.unified_diff(expected.log.splitlines(), actual.log.splitlines(),
+                                    "uninterrupted", "relayed", lineterm="", n=1)  # fmt: skip
+        raise AssertionError("logs differ:\n" + "\n".join(list(diff)[:60]))
     assert actual.figures() == expected.figures()
     files_a, files_b = expected.files(), actual.files()
     assert files_a.keys() == files_b.keys()

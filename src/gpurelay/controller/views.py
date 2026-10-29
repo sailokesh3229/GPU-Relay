@@ -8,9 +8,10 @@ from datetime import datetime, timezone
 from rich.console import Console
 from rich.table import Table
 
+from gpurelay.controller.credits import card_spent_this_month
 from gpurelay.controller.daemon import Controller
 from gpurelay.controller.estimator import BudgetLine, Estimate, estimate, fit_message
-from gpurelay.controller.spend import backend_spent_this_month, segment_cost
+from gpurelay.controller.spend import segment_cost
 from gpurelay.durations import format_duration
 from gpurelay.models import BudgetModel, Job, JobState, SegmentState
 
@@ -60,7 +61,18 @@ class BackendRow:
     hold: str | None = None  # why the platform is not used right now (launch refused)
     paid_usd_per_h: float | None = None  # paid GPU time after the free budget (P16)
     paid_cap_usd: float = 0.0  # the owner's monthly limit for it
-    paid_spent_usd: float = 0.0  # this month
+    paid_spent_usd: float = 0.0  # by card, this month
+    # Credit the user bought there (spec §21.2): what is left, and whether the figure comes
+    # from the platform or is estimated (entered minus measured). None: no credit known.
+    credit_left_usd: float | None = None
+    credit_source: str | None = None
+    credit_as_of: datetime | None = None
+    use_credits: bool = True
+    paid_only: bool = False  # a paid platform of the user's: no free hours (spec §21)
+
+
+def _utc(ts: float) -> datetime:
+    return datetime.fromtimestamp(ts, tz=timezone.utc)
 
 
 def _fmt_time(value: datetime | None) -> str:
@@ -130,6 +142,7 @@ def backend_rows(controller: Controller, now: float) -> list[BackendRow]:
             if slot.budget.estimate and not quota.corrected:
                 remaining += " (est.)"
                 estimated = True
+        credit = controller.credit(slot, now) if slot.paid_usd_per_h else None
         rows.append(
             BackendRow(
                 name=slot.name,
@@ -151,7 +164,12 @@ def backend_rows(controller: Controller, now: float) -> list[BackendRow]:
                 hold=controller.hold_reason(slot.name, now),
                 paid_usd_per_h=slot.paid_usd_per_h,
                 paid_cap_usd=slot.paid_cap_usd,
-                paid_spent_usd=backend_spent_this_month(controller.db, slot.name, now),
+                paid_spent_usd=card_spent_this_month(controller.db, slot.name, now),
+                credit_left_usd=credit.left_usd if credit else None,
+                credit_source=credit.source if credit else None,
+                credit_as_of=_utc(credit.as_of) if credit else None,
+                use_credits=slot.use_credits,
+                paid_only=slot.paid_only,
             )
         )
     return rows

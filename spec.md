@@ -49,7 +49,8 @@ These come from platform terms and must be enforced in code and docs. **Do not i
 - Process-level snapshots (CRIU, cuda-checkpoint): free notebook containers don't grant the privileges, and snapshots don't restore across GPU models.
 - Multi-GPU / distributed training across backends.
 - Bit-identical results across different GPU models (documented as "numerically equivalent").
-- Paid platforms (may be added later as backends).
+- ~~Paid platforms.~~ Since added: paid time within the user's limits (plan P16), and the
+  user's own paid GPU platforms (§21, plan G1-G5).
 
 ---
 
@@ -365,6 +366,7 @@ SQLite at `~/.gpurelay/state.db`: `jobs`, `segments`, `checkpoints`, `quota_ledg
 1. Queue ordered by priority, then submission time.
 2. For the next runnable job, choose a backend that: is ready, has remaining budget ≥ `min_segment_h` (default 0.5 h), has a free concurrency slot, and satisfies the job's GPU-memory need if known. Prefer automated backends; among them prefer the one with the most remaining budget; prefer keeping the same GPU model as previous segments when budgets tie (reduces numeric drift).
 3. If only Colab is available → `awaiting_user` + notify.
+3b. Then credit the user bought on their own paid platforms (§21.3; cheapest per unit of work, never past what is left), then paid time by card within the job's allowance and the platform's monthly limit (P16; both $0 by default).
 4. If nothing has budget → `waiting_for_quota` with the earliest reset time; auto-resume after reset.
 5. **Parallel jobs:** different jobs may run simultaneously on different backends (and up to `max_concurrent` on one backend). One job never runs two segments at once (except chunk-parallel jobs, later phase).
 6. Hard rule: one configured account per backend type; the scheduler never treats two accounts of the same service as separate backends.
@@ -544,3 +546,75 @@ Confirmed with the owner 2026-10-28; A1-A3 built 2026-10-28 (`docs/progress.md`)
 - Recorded in `docs/verify.md` (#30-32): the terms for driving the user's own CLI (re-check),
   the Claude Code flags (checked with 2.1.312), the Codex flags (from OpenAI's docs; not run
   here: Codex is not installed on the owner's laptop).
+
+---
+
+## 21. Your GPU platforms: free tiers, GPU clouds, hyperscalers (plan.md G1-G5)
+
+Confirmed with the owner 2026-10-29. Built 2026-10-29 (plan G1-G5, §21.5); not run on a real paid account yet. GPU Relay's aim stays the lowest
+GPU cost for the user: it uses **every GPU platform the user already has**, free time first,
+then the credits the user bought, cheapest per unit of work first, within the user's limits.
+
+### 21.1 Asking the user
+- At **first sign-in** (website) or first start (desktop), a "Your GPU platforms" page asks,
+  in three sections:
+  1. **Tech hyperscalers**: Google Cloud, AWS, Azure, asked one by one ("Do you have an
+     account? Yes / No / Not now").
+  2. **Specialised AI and ML clouds** (RunPod, Vast.ai, Lambda, CoreWeave, DigitalOcean, and
+     others): the user picks the ones where they have paid GPU access and enters the
+     credentials GPU Relay needs for each.
+  3. **Free platforms**: Colab, Kaggle, Modal, asked one by one.
+- Every question can be skipped. The same page is in **Settings** at any time, for a
+  platform where the user bought credits later. Adding or changing a platform **never loses
+  data**: earlier answers, credentials, jobs and spend stay; removing a platform asks first
+  and removes only that platform's credentials.
+- Credentials are kept like today's tokens: sealed in the vault on the website, the OS
+  keyring on the desktop; never in job code, logs or startup scripts shown to others. The
+  page says which permission each key needs (the least that works) and how to revoke it.
+- A platform GPU Relay cannot drive yet is still recorded ("not supported yet"), so it can be
+  turned on when its backend lands.
+- New Google Cloud and AWS accounts (and many Azure subscriptions) start with **zero GPU
+  quota**; the page says so and links the platform's quota request.
+
+### 21.2 Credits left
+- Per platform: the credit the user has left, refreshed from the platform's own API where it
+  offers one (VERIFY per platform, `docs/verify.md`), otherwise the amount the user entered
+  minus GPU Relay's measured spend there (price x time, `controller/spend.py`), which the user
+  can correct at any time. The source is shown ("from RunPod" / "estimated").
+- Shown on the budget cards beside free hours: "$12.40 left · about 21 h on an RTX 4090".
+- Notifications when a platform's credit gets low (below 10 % or below one minimum session)
+  and when it runs out.
+
+### 21.3 Scheduling
+- Extends §13.4 and P16: (1) free hours and free credits, (2) Colab, (3) the user's paid
+  platforms, cheapest per unit of work (price / GPU speed) first, (4) otherwise wait.
+- A paid session starts only if the platform's credit left, its monthly limit and the job's
+  paid allowance all cover at least a minimum segment; the session deadline ends it (with a
+  checkpoint) before any of them runs out.
+- Every machine GPU Relay starts on a paid platform is named and tagged for the job, stops
+  itself at its deadline plus a short grace, and is deleted when its segment ends; the
+  controller also removes machines it started that it no longer tracks, so nothing keeps
+  billing.
+
+### 21.4 Rules
+- Hard rules 1 and 4 apply: one account per service; each platform's terms and official API
+  are checked and recorded in `docs/verify.md` before its backend is turned on. A backend
+  built against the documentation and fakes but not run on a real account is marked
+  "not tried live".
+
+### 21.5 Built (2026-10-29, plan G2-G5)
+- Credit (G2, `controller/credits.py`): the platform's balance where its API has one
+  (RunPod, Vast.ai, AWS; read at most every 10 minutes, minus what ran since), else the
+  amount the user entered minus GPU Relay's measured spend since (Lambda, DigitalOcean,
+  Google Cloud, Azure). Segments record what paid them (`paid_from`: credit or card); a card
+  limit counts card spending only. The scheduler order is free hours, Colab, credit (no job
+  allowance needed: already paid), card (job allowance and monthly limit, both $0 by
+  default). Notices when credit is low (under 10 %) and used up (under one minimum segment).
+- Backends (G3-G5, `backends/cloud.py` and one provider each): RunPod (REST v2), Vast.ai
+  (REST, cheapest verified offer), Lambda (Cloud API), DigitalOcean (API), AWS (boto3),
+  Google Cloud (Compute REST, google-auth), Azure (SDK). Each is off until the user turns it
+  on, on Your GPU platforms, with its terms confirmed and its credentials saved; its machine
+  type and region can be changed there. `docs/verify.md` #33-39 lists what each one's
+  documentation confirmed; none has been run on a real account.
+- On the website, a user's own GPU Relay gets the credentials of the platforms they turned
+  on, as environment variables, and no others.

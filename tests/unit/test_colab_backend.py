@@ -7,7 +7,7 @@ import ast
 import json
 import sys
 import types
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -168,7 +168,7 @@ def _request(storage: LocalFSStorage, segment: str = "seg-a", seq: int | None = 
 
 
 def _status(storage: LocalFSStorage, segment: str, state: str, age_s: float) -> None:
-    beat = datetime.now(UTC) - timedelta(seconds=age_s)
+    beat = datetime.now(timezone.utc) - timedelta(seconds=age_s)
     _put(storage, status_key(_JOB.id),
          {"segment_id": segment, "state": state, "heartbeat_at": beat.isoformat()})  # fmt: skip
 

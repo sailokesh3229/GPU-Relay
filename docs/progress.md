@@ -1353,3 +1353,108 @@ GPU Relay's aim becomes the lowest GPU cost: free first, paid only within limits
   1.0-2.0 s) on the code before 9fe6387 as well (an older bug in `instrument_functions`:
   after several kills, `train()` returns an empty `history`; not yet fixed);
   `test_hf_trainer_unmodified_handoffs` had a different log once and passed on its own.
+
+## Bug fixes B1 (2026-10-29, local only)
+
+Every known bug before the platform phases (plan G1-G5), most of them from CI:
+
+| Bug | Fix |
+|---|---|
+| mypy on Linux (CI lint): code after `if sys.platform != "win32": return` read as unreachable (`pathutil.long_path`, `desktop.integration.create_shortcut`); `subprocess.CREATE_NO_WINDOW` missing (`hosted.py`, `aifix/tool.py`); no psycopg stubs | the Windows part in its own function; `os.name` where mypy must check both; `getattr(subprocess, "CREATE_NO_WINDOW", 0)`; psycopg in the untyped list. `mypy --platform linux` is clean |
+| Python 3.10: a test imported `datetime.UTC` (3.11+) | `timezone.utc` |
+| CI's `dev` install lacked `cryptography` (vault tests could not import) and `numpy` (RNG restore tests) | both in the `dev` extra |
+| **`gpurelay up` ignored the stop file on Linux** until its sleep ended (the Render server): `signal.raise_signal` targets the calling thread, the watcher | the signal goes to the main thread (`signal.pthread_kill`); Windows unchanged. Checked in WSL: old code woke after the full 8 s sleep, new code after 1.0 s |
+| Modal's readiness test failed where Modal's SDK is not installed | the test fakes the installed SDK |
+| Handoff tests with fixed session lengths (torch in a function, DataLoader mid-epoch, HF Trainer) got too few handoffs on fast machines, whose start-up is shorter | `_pair_with_handoffs` repeats the run with sessions 30 % shorter (up to 3 times); the same checks |
+| **`instrument_functions` lost what an earlier function returned** (`history = train()` in `main`): resuming at a checkpoint in a later function's loop skipped `train()`'s loop, and `main`'s locals were not in the checkpoint, so `history` came back empty (IndexError). Reproduced with kill seeds 2 and 6, also before 9fe6387 | a checkpoint inside an instrumented function also holds the locals of the job's own functions that called it (same module globals, function frames only), restored in place on resume. New corpus `function_callers.py` and `test_callers_keep_what_an_earlier_function_returned` fail without the fix and pass with it |
+
+- Checks: 633 unit tests pass on Windows (Python 3.14) and on Linux with Python 3.10 (WSL);
+  ruff, ruff format, mypy (Windows and `--platform linux`) clean; the three adapted framework
+  tests pass.
+- Integration: 55 of 59 pass in one 17-minute run on the loaded laptop. The four that failed
+  (`adversarial[closure_counter]`, `adversarial[tight_loop]`, the stress test, the HF Trainer
+  handoff) all pass when rerun alone, so they are load-sensitive, as noted at 1.0.0.
+- Not explained yet: `test_hf_trainer_unmodified_handoffs` has had a different log twice
+  under heavy load. The log check now prints a diff of the two logs, so the next failure
+  shows what differed.
+
+## Phase G1 — Your GPU platforms: asking and Settings (2026-10-29, local only)
+
+- **Catalog** (`platforms/catalog.py`), three sections:
+  - hyperscalers: Google Cloud, AWS, Azure;
+  - GPU clouds: RunPod, Vast.ai, Lambda, DigitalOcean, CoreWeave, plus "others" by name;
+  - free: Colab, Kaggle, Modal.
+  Each paid platform lists the credential fields its official API uses (Google Cloud: project ID
+  and a service account key; AWS: access key, secret, region; Azure: tenant, client, secret,
+  subscription; the clouds: one API key or token) and the phase that adds its backend. CoreWeave
+  is recorded only (contracts, Kubernetes).
+- **One page, one API, two homes** (`platforms/routes.py`, `platforms/page.html`): the
+  website (`/platforms`, answers in the user's settings, credentials sealed in the vault as
+  `platform.<id>.<field>`) and the desktop app (answers in `platforms.json`, which keeps
+  `config.toml` from marking setup done; credentials in the OS keyring).
+- **Never lost:** a save changes only the platforms it names; an empty credential field keeps
+  the saved one; unticking a cloud or answering No keeps its credentials; they go only through
+  "Remove saved credentials" (two clicks), which leaves the answers. Everything is checked
+  before anything is kept. Other setup steps keep the answers.
+- **Never given to jobs:** platform credentials are not job tokens, so no process acting for
+  the user gets them (checked against the user environment), and they are never returned.
+- **Asked once, first:** the website sends a signed-in user to `/platforms` until they save or
+  skip, then to setup; the desktop app shows it before its setup wizard. Settings (both) and
+  the website's setup page link to it. Free platforms link to their setup step and show
+  Connected; hyperscalers say that new accounts have no GPU quota.
+- **Limits:** confirmed email (like setup), 60 changes an hour per user on the website, the
+  action header on the desktop.
+- **Checked in a browser** (headless Chrome against the real page and API): light, dark, and a
+  real 390 px phone width (headless Chrome cannot go below 504 px, so the page ran in a 390 px
+  frame). The fieldsets kept the page from shrinking on phones; fixed. A scripted run chose
+  Yes for AWS, typed its key, ticked Vast.ai, unticked RunPod and saved: the page sent only
+  those changes, kept Google Cloud's answer and RunPod's saved key.
+- **Tests:** `test_platforms.py` (11). 644 unit tests pass; ruff, ruff format, mypy (Windows
+  and Linux) clean.
+
+## Phases G2-G5 — Credit left, and the user's paid platforms as backends (2026-10-29, local only)
+
+The owner has no account with credit on any of these, so every backend is built from the
+platform's documentation (researched today, `docs/verify.md` #33-39) and tested with fakes.
+None has started a real machine.
+
+- **G2 credit** (`controller/credits.py`):
+  - credit left = the platform's balance (RunPod, Vast.ai, AWS: read at most every 10 min,
+    minus what ran since) or the amount entered minus measured spend since (Lambda,
+    DigitalOcean, Google Cloud, Azure);
+  - `Segment.paid_from` (credit | card); the card limit counts card spending only;
+  - scheduler: free hours, Colab, **credit** (cheapest per unit of work, no job allowance,
+    the session ends before the credit does), card (as P16);
+  - notices once when credit gets low (under 10 %) and when it is used up (under one minimum
+    session); the budget cards show "$x credit left", from the platform or estimated, and link
+    to Your GPU platforms to update it.
+- **G3-G5 backends** (`backends/cloud.py` + `runpod.py`, `vast.py`, `lambdacloud.py`,
+  `digitalocean.py`, `aws.py`, `gcp.py`, `azure.py`):
+  - one machine per segment named `gpurelay-<owner>-<job>-<segment>` (`owner` from the
+    storage repo, so two GPU Relays on one account never touch each other's machines);
+  - the session script runs the shared bootstrap (compressed, so it fits Vast.ai's 4 KB
+    onstart) under `timeout`, then ends the machine where the platform allows it (RunPod
+    stop, Vast.ai destroy, AWS shutdown-terminates, Google Cloud and DigitalOcean power off);
+  - **nothing keeps billing**: the controller finishes a paid segment as soon as `status.json`
+    says it is over (Lambda keeps an instance "active"), deletes the machine whenever a
+    segment closes, gives up on a machine still starting after 30 min, and every 5 min
+    deletes its own machines that no live segment owns;
+  - each segment records the price its machine really costs (a Vast.ai offer's `dph_total`);
+  - containers get `HF_TOKEN` from the platform's environment; whole machines get it in their
+    startup script (no other way exists; only the account can read it).
+- **Turning a platform on** (Your GPU platforms): a switch, the terms confirmation, the
+  credit left now, "spend this credit after free time", a monthly card limit ($0), the GPU or
+  machine type and region. On needs the terms and the credentials; removing the credentials
+  turns it off. The website restarts the user's GPU Relay with the change and gives it only
+  the turned-on platforms' credentials (`UserSpaces.platform_env`).
+- Extras: `aws` (boto3), `gcp` (google-auth, requests), `azure` (azure-identity,
+  azure-mgmt-*), `clouds` (all three), now in the server image.
+- **Checks:**
+  - `test_credits.py` (7), `test_cloud_backends.py` (15) and 2 more in `test_platforms.py`;
+  - 668 unit tests pass; ruff, ruff format, mypy (Windows and Linux) clean;
+  - the session scripts ran with bash on Linux (WSL): the bootstrap ran with the token, and
+    the self-stop lines ran without a platform (and failed quietly);
+  - headless Chrome: the new controls, and a scripted turn-on (switch, terms, $30 credit)
+    saved and read back.
+- **Not done:** a real machine on any platform (no account with credit). Before relying on
+  one, run a short job with a small credit and check `docs/verify.md` #33-39.
