@@ -226,6 +226,7 @@ def test_app_without_storage_goes_to_setup(forwarding: Any) -> None:
     w, client, seen = forwarding
     w.user("bob@example.com", storage=False)
     _sign_in(client, "bob@example.com")
+    client.post("/api/platforms", json={"done": True})  # the platform questions, skipped
     assert client.get("/app/").headers["location"] == "/setup"
     assert client.get("/app/api/overview").status_code == 409 and seen == []
 
@@ -271,6 +272,8 @@ def test_signing_in_asks_about_platforms_then_setup_until_ready_then_the_app(
                                             "password": PW, "confirm": PW})  # fmt: skip
     assert response.headers["location"] == "/platforms"  # asked once, first
     assert client.get("/").headers["location"] == "/platforms"
+    # Opening their GPU Relay directly (a bookmark) asks first too.
+    assert client.get("/app/").headers["location"] == "/platforms"
     skipped = client.post("/api/platforms", json={"done": True})
     assert skipped.status_code == 200 and skipped.json()["next"] == "/setup"
     assert client.get("/").headers["location"] == "/setup"  # nothing connected yet
@@ -292,6 +295,7 @@ def test_the_app_page_has_a_bar_back_to_setup_and_account(forwarding: Any) -> No
     w, client, _ = forwarding
     w.user("ada@example.com")
     _sign_in(client, "ada@example.com")
+    client.post("/api/platforms", json={"done": True})  # the platform questions, skipped
 
     response = client.get("/app/")
     assert response.status_code == 200
@@ -300,4 +304,5 @@ def test_the_app_page_has_a_bar_back_to_setup_and_account(forwarding: Any) -> No
     out = with_site_bar(b"<html><body><main>x</main></body></html>", "<ada>").decode()
     assert out.index('href="/setup"') < out.index("<main>") and "&lt;ada&gt;" in out
     assert 'action="/signout"' in out and 'href="/account"' in out
+    assert 'href="/platforms"' in out and 'href="/setup#ai"' in out  # spec §20, §21
     assert with_site_bar(b"no body tag", "ada") == b"no body tag"

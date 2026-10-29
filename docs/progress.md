@@ -1458,3 +1458,25 @@ None has started a real machine.
     saved and read back.
 - **Not done:** a real machine on any platform (no account with credit). Before relying on
   one, run a short job with a small credit and check `docs/verify.md` #33-39.
+
+## Fixes after the G1-G5 deploy (2026-10-29)
+
+- **Lost output lines with parallel chunks** (CI stress test on Windows, Python 3.10): the
+  main session marked each chunk done without its printed lines (only workers saved them).
+  Killed after chunks 15-16 and before its next checkpoint, its lines past the checkpoint
+  were dropped, and the next session took 15-16 as done and printed nothing for them. The
+  main session now saves its lines with each done mark (same storage write). New
+  `test_chunks_done_after_the_last_checkpoint_keep_their_output`: without the fix every
+  kill pattern lost lines (chunks 21-24, 16-17, 29, 36-38...), with it none.
+- **Colab notebook on Python 3.10**: `datetime.fromisoformat` refuses a trailing `Z`
+  before 3.11, so a rerun of the notebook crashed instead of saying it already ran. The
+  lease parser was given the same guard (it writes `+00:00`, so it was not affected).
+- **The platform questions were skipped** when someone opened their GPU Relay (`/app/`)
+  directly, e.g. from a bookmark: `/app/` now shows them first until answered or skipped.
+  The bar above the app links to Your GPU platforms and Fix it with AI.
+- **Front page**: the step rule (`ol li`) also styled the bullets inside each step, so every
+  bullet got a number and a two-column grid that put the Colab line's words on top of each
+  other. Only the steps are styled now (`ol > li`). The page also lists the paid platforms
+  and Fix it with AI as optional.
+- Checks: 668 unit tests (Windows) and 655 (Linux, Python 3.10) pass; the parallel chunks
+  and Colab relay integration tests pass.

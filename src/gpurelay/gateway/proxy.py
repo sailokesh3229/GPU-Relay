@@ -9,6 +9,7 @@ user process's own cookies are not passed back.
 from __future__ import annotations
 
 import html
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -24,13 +25,16 @@ FORWARD_REQUEST = ("content-type", "accept", "x-gpurelay-action", "range")
 FORWARD_RESPONSE = ("content-type", "content-disposition", "content-range", "accept-ranges")
 METHODS = ["GET", "POST", "PUT", "DELETE"]
 
-# A slim bar above the user's GPU Relay page: back to setup and the account without the
-# browser's back button. The app page is the same one the desktop app shows, so the bar is
-# added here, on the website only.
+# A slim bar above the user's GPU Relay page: setup, their GPU platforms (spec §21), Fix it
+# with AI (spec §20, setup step 6) and the account, without the browser's back button. The
+# app page is the same one the desktop app shows, so the bar is added here, on the website
+# only.
 SITE_BAR = (
     '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 16px;'
     'background:var(--card,#fff);border-bottom:1px solid var(--line,#e2e5ea);font-size:13px">'
     '<a href="/setup" style="font-weight:600">Set up accounts</a>'
+    '<a href="/platforms">Your GPU platforms</a>'
+    '<a href="/setup#ai">Fix it with AI</a>'
     '<a href="/account">Account</a>'
     '<span style="margin-left:auto;color:var(--muted,#5b6270)">Signed in as {name}</span>'
     '<form method="post" action="/signout" style="margin:0">'
@@ -46,8 +50,15 @@ def with_site_bar(page: bytes, name: str) -> bytes:
     return head + found + bar + rest if found else page
 
 
-def app_router(children: Children, client_factory: Any = None, max_jobs: int = 3) -> APIRouter:
-    """``max_jobs``: unfinished jobs a user may have at once (the site's capacity is small)."""
+def app_router(
+    children: Children,
+    client_factory: Any = None,
+    max_jobs: int = 3,
+    asked: Callable[[str], bool] = lambda user_id: True,
+) -> APIRouter:
+    """``max_jobs``: unfinished jobs a user may have at once (the site's capacity is small).
+    ``asked``: whether the user answered (or skipped) the GPU platform questions; until then
+    opening their GPU Relay shows those first (spec §21.1), however they got there."""
     router = APIRouter()
     state: dict[str, Any] = {}
 
@@ -66,6 +77,8 @@ def app_router(children: Children, client_factory: Any = None, max_jobs: int = 3
     async def forward(path: str, request: Request) -> Any:
         user_id = str(request.state.user.id)
         wants_page = request.method == "GET" and not path.startswith("api/")
+        if path == "" and wants_page and not await run_in_threadpool(asked, user_id):
+            return RedirectResponse("/platforms", status_code=303)
         if not await run_in_threadpool(children.can_start, user_id):
             if wants_page:
                 return RedirectResponse("/setup", status_code=303)

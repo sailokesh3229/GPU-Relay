@@ -376,7 +376,13 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
     if children is not None:
         from gpurelay.gateway.proxy import app_router
 
-        app.include_router(app_router(children, settings.proxy_client, settings.max_jobs))
+        spaces_ = settings.spaces
+
+        def asked(user_id: str) -> bool:
+            return spaces_ is None or spaces_.config(user_id).platforms.asked_at is not None
+
+        app.include_router(app_router(children, settings.proxy_client, settings.max_jobs,
+                                      asked=asked))  # fmt: skip
         app.include_router(helper_router(store, children, settings.proxy_client))
 
     return app

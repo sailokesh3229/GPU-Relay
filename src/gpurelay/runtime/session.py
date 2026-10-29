@@ -748,7 +748,10 @@ class RelaySession:
                 if marker is not None:
                     self._merge_chunk(bucket, k, marker)
                     continue
-                yield from self._compute_chunk(region, bucket, k, chunk_at, seed, output=False)
+                # Its printed output goes with the result too: if this session dies before
+                # the next checkpoint, the one that resumes takes the chunk as done and
+                # must print what it printed (its log after the checkpoint is discarded).
+                yield from self._compute_chunk(region, bucket, k, chunk_at, seed, output=True)
 
         def worker_items(_start: int) -> Iterator[tuple[int, Any]]:
             for k in builtins.range(total - 1, -1, -1):

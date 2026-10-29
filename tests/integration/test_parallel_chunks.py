@@ -102,3 +102,22 @@ def test_plain_python_run_matches_too(tmp_path: Path) -> None:
     assert plain.stdout.replace("\r\n", "\n") == relayed.log.replace("\r\n", "\n")
     summary = (tmp_path / "summary.txt").read_text()
     assert summary == (tmp_path / "relay" / "final" / "files" / "summary.txt").read_text()
+
+
+KILL_RUNTIME = RuntimeSettings(
+    min_interval_s=1.5, max_lost_work_s=2.5, safety_margin_s=0.3, heartbeat_s=0.5,
+    stale_heartbeat_s=4, replay_threshold_s=0.5,
+)  # fmt: skip
+KILL_ENV = {"CORPUS_ITEMS": "800", "CORPUS_CHUNK": "20", "CORPUS_CHUNK_SLEEP": "0.3"}
+
+
+@pytest.mark.parametrize("seed", [0, 3])
+def test_chunks_done_after_the_last_checkpoint_keep_their_output(tmp_path: Path, seed: int) -> None:
+    # Several chunks finish (and are marked done) between two checkpoints; a kill there must
+    # not lose their printed lines: the next session takes those chunks as done and prints
+    # their saved output (their lines in the killed session's log are past its checkpoint).
+    baseline = run_job(SCRIPT, tmp_path / "a", env=KILL_ENV, settings=KILL_RUNTIME)
+    run = run_job(SCRIPT, tmp_path / "b", env=KILL_ENV, settings=KILL_RUNTIME,
+                  kill_between_s=(6.0, 9.0), seed=seed)  # fmt: skip
+    assert run.outcomes.count("crashed") >= 1, run.outcomes
+    assert_equivalent(baseline, run)

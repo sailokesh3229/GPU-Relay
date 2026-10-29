@@ -100,7 +100,9 @@ class ControllerLease:
 
     def _is_stale(self, lease: dict[str, object]) -> bool:
         try:
-            renewed = datetime.fromisoformat(str(lease["renewed_at"])).timestamp()
+            # Python 3.10 refuses a trailing "Z" (UTC): the lease would always look stale
+            stamp = str(lease["renewed_at"]).replace("Z", "+00:00")
+            renewed = datetime.fromisoformat(stamp).timestamp()
         except (KeyError, ValueError):
             return True
         return self.clock() - renewed > self.stale_s

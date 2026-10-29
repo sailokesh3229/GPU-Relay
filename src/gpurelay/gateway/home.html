@@ -24,11 +24,12 @@ p{margin:0}
 .btn.small{min-height:32px;padding:0 10px;font-size:13px}
 form{margin:0}
 ol{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;counter-reset:step}
-ol li{counter-increment:step;display:grid;grid-template-columns:32px 1fr;gap:12px;padding:14px;border:1px solid var(--line);border-radius:10px}
-ol li::before{content:counter(step);display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent);font-weight:700}
+ol>li{counter-increment:step;display:grid;grid-template-columns:32px 1fr;gap:12px;padding:14px;border:1px solid var(--line);border-radius:10px}
+ol>li::before{content:counter(step);display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--soft);color:var(--accent);font-weight:700}
 .need{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--soft);color:var(--accent)}
 .need.opt{color:var(--muted)}
 li ul{margin:6px 0 0;padding-left:18px;color:var(--muted)}
+code{overflow-wrap:anywhere;padding:1px 5px;border-radius:4px;background:var(--soft);color:var(--ink);font:12px ui-monospace,Consolas,monospace}
 a{color:var(--accent)}
 .note{padding:12px 14px;border-radius:10px;background:var(--soft)}
 [hidden]{display:none!important}
@@ -92,6 +93,12 @@ a{color:var(--accent)}
       <li><div><strong>Google Colab</strong><span class="need opt">optional</span>
         <ul><li>A Google account. In Colab, add a secret named <code>GPURELAY_HF_TOKEN</code> that holds your Hugging Face token.</li>
           <li>Why: more free GPU time. When a job needs Colab, you open the notebook GPU Relay gives you and press Run all.</li></ul></div></li>
+      <li><div><strong>Your paid GPU platforms</strong><span class="need opt">optional</span>
+        <ul><li>Credit or an account on Google Cloud, AWS, Azure, RunPod, Vast.ai, Lambda or DigitalOcean, and its API key. At first sign-in GPU Relay asks which ones you have; you can add more later.</li>
+          <li>Why: after the free GPU time, GPU Relay uses the credit you bought, cheapest first, and never spends past it. Card spending stays $0 unless you raise it.</li></ul></div></li>
+      <li><div><strong>Fix it with AI</strong><span class="need opt">optional</span>
+        <ul><li>Claude Code (your Claude Pro or Max plan) or Codex (your ChatGPT plan) on your own computer. No API key needed.</li>
+          <li>Why: when a job stops with an error in its code, its page offers a fix you can apply and rerun with one click.</li></ul></div></li>
     </ol>
   </section>
 

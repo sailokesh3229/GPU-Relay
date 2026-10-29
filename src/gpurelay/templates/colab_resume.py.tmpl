@@ -90,7 +90,8 @@ if request is None:
 SEGMENT_ID = request["segment_id"]
 SEQ = latest["seq"] if latest else None
 if status and status["segment_id"] == SEGMENT_ID:
-    beat = datetime.fromisoformat(status["heartbeat_at"]).timestamp()
+    # (a trailing "Z" is ISO 8601 for UTC; Python 3.10's fromisoformat does not accept it)
+    beat = datetime.fromisoformat(status["heartbeat_at"].replace("Z", "+00:00")).timestamp()
     if status["state"] == "running" and time.time() - beat < STALE_S:
         raise GpuRelayStop("this session is already running (another tab or runtime?)")
     raise GpuRelayStop(
