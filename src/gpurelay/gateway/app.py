@@ -31,7 +31,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from gpurelay import __version__
 from gpurelay.accounts.sessions import COOKIE_NAME, SessionSigner
@@ -58,7 +58,7 @@ log = logging.getLogger(__name__)
 DEFAULT_MAX_USERS = 3
 MAX_FORM = 4096
 PUBLIC_PATHS = frozenset(
-    {"/", "/signin", "/signup", "/healthz", "/api/me", "/verify", "/forgot", "/reset"}
+    {"/", "/signin", "/signup", "/healthz", "/api/me", "/verify", "/forgot", "/reset", "/logo.svg"}
 )
 # With email on, these wait until the user confirmed their address.
 NEEDS_VERIFIED = ("/setup", "/api/setup", "/app", "/platforms", "/api/platforms")
@@ -245,6 +245,11 @@ def create_gateway(settings: GatewaySettings) -> FastAPI:
     async def form(request: Request) -> dict[str, str]:
         raw = (await request.body())[:MAX_FORM].decode("utf-8", "replace")
         return {k: v[0] for k, v in parse_qs(raw).items()}
+
+    @app.get("/logo.svg", include_in_schema=False)
+    def logo() -> Response:
+        svg = resources.files("gpurelay.assets").joinpath("logo.svg").read_bytes()
+        return Response(svg, media_type="image/svg+xml")
 
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request) -> Any:

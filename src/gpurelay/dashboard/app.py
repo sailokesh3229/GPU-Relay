@@ -19,7 +19,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
@@ -182,7 +182,7 @@ def _segment_json(seg: Segment, now: float) -> dict[str, Any]:
 
 
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
-PUBLIC_PATHS = frozenset({"/login", "/healthz"})
+PUBLIC_PATHS = frozenset({"/login", "/healthz", "/logo.svg"})
 # Served behind a login on the internet: no framing by other sites (clickjacking), no caching.
 HOSTED_HEADERS = {
     "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; "
@@ -336,6 +336,11 @@ def create_app(
         from gpurelay.dashboard.aifix_routes import AiFix
 
         ai = AiFix(ctx, find, ai_fix, action_header=ACTION_HEADER)
+
+    @app.get("/logo.svg", include_in_schema=False)
+    def logo() -> Response:
+        svg = resources.files("gpurelay.assets").joinpath("logo.svg").read_bytes()
+        return Response(svg, media_type="image/svg+xml")
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
